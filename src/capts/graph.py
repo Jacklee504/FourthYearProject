@@ -2,14 +2,14 @@
 
 from collections import deque
 from collections.abc import Iterable
-
 import networkx as nx
-
 from capts.model import EdgeType, NodeType
 
-
-IMPACT_EDGE_TYPES = {EdgeType.CONSUMES}
-
+IMPACT_EDGE_TYPES = {
+    EdgeType.CONSUMES,
+    EdgeType.INHERITS,
+    EdgeType.EXECUTES,
+}
 
 def select_affected_stages(
     graph: nx.DiGraph, changed_nodes: Iterable[str]

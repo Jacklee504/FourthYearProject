@@ -1,34 +1,75 @@
 import networkx as nx
-
 from capts.graph import select_affected_stages
 from capts.model import EdgeType, NodeType
 
-
 def test_changed_variable_selects_all_consuming_stages() -> None:
     graph = nx.DiGraph()
-    graph.add_node("variable:APP_MODE", node_type=NodeType.VARIABLE)
-    graph.add_node("stage:build", node_type=NodeType.STAGE)
-    graph.add_node("stage:test", node_type=NodeType.STAGE)
-    graph.add_edge("stage:build", "variable:APP_MODE", edge_type=EdgeType.CONSUMES)
-    graph.add_edge("stage:test", "variable:APP_MODE", edge_type=EdgeType.CONSUMES)
+    graph.add_node("APP_MODE", node_type=NodeType.VARIABLE)
+    graph.add_node("main/build", node_type=NodeType.STAGE)
+    graph.add_node("main/test", node_type=NodeType.STAGE)
+    graph.add_edge("main/build", "APP_MODE", edge_type=EdgeType.CONSUMES)
+    graph.add_edge("main/test", "APP_MODE", edge_type=EdgeType.CONSUMES)
 
-    assert select_affected_stages(graph, {"variable:APP_MODE"}) == {
-        "stage:build",
-        "stage:test",
+    assert select_affected_stages(graph, {"APP_MODE"}) == {
+        "main/build",
+        "main/test",
     }
-
 
 def test_depends_on_edge_does_not_propagate_impact() -> None:
     graph = nx.DiGraph()
-    graph.add_node("stage:build", node_type=NodeType.STAGE)
-    graph.add_node("stage:test", node_type=NodeType.STAGE)
-    graph.add_edge("stage:test", "stage:build", edge_type=EdgeType.DEPENDS_ON)
+    graph.add_node("main/build", node_type=NodeType.STAGE)
+    graph.add_node("main/test", node_type=NodeType.STAGE)
+    graph.add_edge("main/test", "main/build", edge_type=EdgeType.DEPENDS_ON)
 
-    assert select_affected_stages(graph, {"stage:build"}) == {"stage:build"}
-
+    assert select_affected_stages(graph, {"main/build"}) == {"main/build"}
 
 def test_unknown_changed_node_selects_nothing() -> None:
     graph = nx.DiGraph()
-    graph.add_node("stage:build", node_type=NodeType.STAGE)
+    graph.add_node("main/build", node_type=NodeType.STAGE)
 
-    assert select_affected_stages(graph, {"variable:MISSING"}) == set()
+    assert select_affected_stages(graph, {"MISSING"}) == set()
+
+
+def test_multiple_changed_roots_are_combined_without_duplicate_stages() -> None:
+    graph = nx.DiGraph()
+    graph.add_node("BUILD_CMD", node_type=NodeType.VARIABLE)
+    graph.add_node("scripts/build.py", node_type=NodeType.SCRIPT)
+    graph.add_node("main/build", node_type=NodeType.STAGE)
+    graph.add_edge("main/build", "BUILD_CMD", edge_type=EdgeType.CONSUMES)
+    graph.add_edge("main/build", "scripts/build.py", edge_type=EdgeType.EXECUTES)
+
+    assert select_affected_stages(graph, {"BUILD_CMD", "scripts/build.py"}) == {
+        "main/build"
+    }
+
+
+def test_template_and_script_changes_propagate_to_stages() -> None:
+    graph = nx.DiGraph()
+    graph.add_node("main/.test-base", node_type=NodeType.TEMPLATE)
+    graph.add_node("scripts/test_runner.py", node_type=NodeType.SCRIPT)
+    graph.add_node("main/unit-test", node_type=NodeType.STAGE)
+    graph.add_edge("main/unit-test", "main/.test-base", edge_type=EdgeType.INHERITS)
+    graph.add_edge("main/unit-test", "scripts/test_runner.py", edge_type=EdgeType.EXECUTES)
+
+    assert select_affected_stages(graph, {"main/.test-base"}) == {"main/unit-test"}
+    assert select_affected_stages(graph, {"scripts/test_runner.py"}) == {"main/unit-test"}
+
+
+def test_repeated_semantic_paths_select_a_stage_once() -> None:
+    graph = nx.DiGraph()
+    graph.add_node("FEATURE_FLAGS", node_type=NodeType.VARIABLE)
+    graph.add_node("main/.test-base", node_type=NodeType.TEMPLATE)
+    graph.add_node("main/unit-test", node_type=NodeType.STAGE)
+    graph.add_edge("main/.test-base", "FEATURE_FLAGS", edge_type=EdgeType.CONSUMES)
+    graph.add_edge("main/unit-test", "FEATURE_FLAGS", edge_type=EdgeType.CONSUMES)
+    graph.add_edge("main/unit-test", "main/.test-base", edge_type=EdgeType.INHERITS)
+
+    assert select_affected_stages(graph, {"FEATURE_FLAGS"}) == {"main/unit-test"}
+
+
+def test_directly_changed_stage_is_selected_without_touching_unrelated_stages() -> None:
+    graph = nx.DiGraph()
+    graph.add_node("main/build", node_type=NodeType.STAGE)
+    graph.add_node("main/lint", node_type=NodeType.STAGE)
+
+    assert select_affected_stages(graph, {"main/build"}) == {"main/build"}
