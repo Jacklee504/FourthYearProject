@@ -1,0 +1,27 @@
+# Operating system and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local configuration and secrets
+.env
+.env.*
+*.local
+
+# Python environments, caches, and test output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
