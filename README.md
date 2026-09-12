@@ -1,4 +1,4 @@
-# CT413 Final Year Project Overview
+# CAPTS: Change-Aware Pipeline Test Selection
 
 **A Format-Agnostic Framework for Selective Change-Testing of CI/CD Pipeline Definitions**
 

@@ -1,0 +1,10 @@
+variables:
+  APP_MODE: test
+
+build:
+  script: echo "$APP_MODE"
+
+test:
+  needs: [build]
+  script:
+    - echo "${APP_MODE}"

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "capts"
+version = "0.1.0"
+description = "Change-Aware Pipeline Test Selection"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "networkx>=3.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
