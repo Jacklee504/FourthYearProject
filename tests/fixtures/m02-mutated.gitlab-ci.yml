@@ -1,0 +1,11 @@
+variables:
+  FF_ENABLED: "new-checkout"
+
+unit-test:
+  script: pytest --feature-flags "$FEATURE_FLAGS"
+
+smoke-test:
+  script: python scripts/smoke.py --feature-flags "$FEATURE_FLAGS"
+
+canary-test:
+  script: python scripts/canary.py --feature-flags "$FEATURE_FLAGS"

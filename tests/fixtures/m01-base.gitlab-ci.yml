@@ -1,0 +1,5 @@
+variables:
+  SCAN_THRESHOLD: high
+
+security-scan:
+  script: python scripts/scan.py --threshold "$SCAN_THRESHOLD"
