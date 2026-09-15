@@ -41,13 +41,6 @@ git diff → format adapter parses old + new definitions
 The initial adapters target GitLab CI and GitHub Actions, demonstrating that
 the same core approach works across two formats.
 
-## Evaluation
-
-| Format         | Ecosystem              | Mutations              | Goal                                                    |
-|----------------|------------------------|------------------------|---------------------------------------------------------|
-| GitLab CI      | 4 pipelines, 12 stages | 18 single + 7 compound | Match the full-run verdict, target ~20% selection ratio |
-| GitHub Actions | 2 workflows, 9 jobs    | 8                      | Demonstrate format-independence                         |
-
 ## Core Deliverables
 
 1. Universal pipeline dependency model and adapter contract.
