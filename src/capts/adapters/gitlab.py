@@ -4,7 +4,8 @@ from pathlib import Path
 import re
 import networkx as nx
 import yaml
-from capts.model import EdgeType, FormatAdapter, NodeType
+from capts.graph import build_graph
+from capts.model import EdgeInfo, EdgeType, FormatAdapter, NodeInfo, NodeType, PipelineModel
 
 GITLAB_GLOBAL_KEYS = {
     "after_script",
@@ -22,11 +23,11 @@ VARIABLE_PATTERN = re.compile(
     r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)}|([A-Za-z_][A-Za-z0-9_]*))"
 )
 
-class GitLabAdapter:
+class GitLabAdapter(FormatAdapter):
     """Map the first supported GitLab CI features into the CAPTS model."""
 
-    def build_graph(self, path: str | Path, *, pipeline_name: str) -> nx.DiGraph:
-        """Map global variables, jobs, and ``needs`` into a graph.
+    def parse(self, path: str | Path, *, pipeline_name: str) -> PipelineModel:
+        """Map global variables, jobs, and ``needs`` into a pipeline model.
 
         Stages use ``pipeline/job`` IDs. Variables remain global IDs because
         every pipeline in the synthetic ecosystem shares the same variables.
@@ -37,13 +38,13 @@ class GitLabAdapter:
         if not isinstance(pipeline, dict):
             raise ValueError("A GitLab pipeline must be a YAML mapping.")
 
-        graph = nx.DiGraph()
+        model = PipelineModel()
         global_variables = pipeline.get("variables", {})
         if not isinstance(global_variables, dict):
             raise ValueError("GitLab global variables must be a mapping.")
 
         for name in global_variables:
-            graph.add_node(name, node_type=NodeType.VARIABLE)
+            model.nodes.append(NodeInfo(name, NodeType.VARIABLE))
 
         jobs = {
             name: definition
@@ -53,7 +54,9 @@ class GitLabAdapter:
             and isinstance(definition, dict)
         }
         for name in jobs:
-            graph.add_node(f"{pipeline_name}/{name}", node_type=NodeType.STAGE)
+            model.nodes.append(
+                NodeInfo(f"{pipeline_name}/{name}", NodeType.STAGE, pipeline_name)
+            )
 
         for job_name, definition in jobs.items():
             stage_id = f"{pipeline_name}/{job_name}"
@@ -63,22 +66,22 @@ class GitLabAdapter:
 
             for variable_name in _referenced_variables(definition):
                 if variable_name in global_variables and variable_name not in local_variables:
-                    graph.add_edge(stage_id, variable_name, edge_type=EdgeType.CONSUMES)
+                    model.edges.append(
+                        EdgeInfo(stage_id, variable_name, EdgeType.CONSUMES)
+                    )
 
             for dependency in _needs(definition.get("needs")):
                 dependency_id = f"{pipeline_name}/{dependency}"
-                if dependency_id in graph:
-                    graph.add_edge(
-                        stage_id,
-                        dependency_id,
-                        edge_type=EdgeType.DEPENDS_ON,
+                if dependency in jobs:
+                    model.edges.append(
+                        EdgeInfo(stage_id, dependency_id, EdgeType.DEPENDS_ON)
                     )
 
-        return graph
+        return model
 
 def parse_gitlab_pipeline(path: str | Path, *, pipeline_name: str) -> nx.DiGraph:
     """Build a CAPTS graph from one GitLab pipeline file."""
-    return GitLabAdapter().build_graph(path, pipeline_name=pipeline_name)
+    return build_graph(GitLabAdapter().parse(path, pipeline_name=pipeline_name))
 
 
 def _referenced_variables(definition: object) -> set[str]:

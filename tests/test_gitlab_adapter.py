@@ -1,9 +1,23 @@
 from pathlib import Path
-from capts.adapters.gitlab import parse_gitlab_pipeline
+from capts.adapters.gitlab import GitLabAdapter, parse_gitlab_pipeline
 from capts.graph import select_affected_stages
 from capts.model import EdgeType, NodeType
 
 FIXTURE = Path(__file__).parent / "fixtures" / "simple.gitlab-ci.yml"
+
+def test_gitlab_adapter_returns_a_pipeline_model() -> None:
+    model = GitLabAdapter().parse(FIXTURE, pipeline_name="main")
+
+    assert {(node.id, node.node_type) for node in model.nodes} == {
+        ("APP_MODE", NodeType.VARIABLE),
+        ("main/build", NodeType.STAGE),
+        ("main/test", NodeType.STAGE),
+    }
+    assert {(edge.source, edge.target, edge.edge_type) for edge in model.edges} == {
+        ("main/build", "APP_MODE", EdgeType.CONSUMES),
+        ("main/test", "APP_MODE", EdgeType.CONSUMES),
+        ("main/test", "main/build", EdgeType.DEPENDS_ON),
+    }
 
 def test_gitlab_adapter_maps_variables_jobs_and_needs() -> None:
     graph = parse_gitlab_pipeline(FIXTURE, pipeline_name="main")

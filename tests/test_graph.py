@@ -1,6 +1,22 @@
 import networkx as nx
-from capts.graph import select_affected_stages
-from capts.model import EdgeType, NodeType
+from capts.graph import build_graph, select_affected_stages
+from capts.model import EdgeInfo, EdgeType, NodeInfo, NodeType, PipelineModel
+
+
+def test_build_graph_preserves_model_nodes_and_edges() -> None:
+    model = PipelineModel(
+        nodes=[
+            NodeInfo("main/build", NodeType.STAGE, pipeline="main"),
+            NodeInfo("BUILD_CMD", NodeType.VARIABLE),
+        ],
+        edges=[EdgeInfo("main/build", "BUILD_CMD", EdgeType.CONSUMES)],
+    )
+
+    graph = build_graph(model)
+
+    assert graph.nodes["main/build"]["node_type"] == NodeType.STAGE
+    assert graph.nodes["main/build"]["pipeline"] == "main"
+    assert graph.edges["main/build", "BUILD_CMD"]["edge_type"] == EdgeType.CONSUMES
 
 def test_changed_variable_selects_all_consuming_stages() -> None:
     graph = nx.DiGraph()

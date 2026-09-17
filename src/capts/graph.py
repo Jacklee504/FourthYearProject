@@ -2,14 +2,34 @@
 
 from collections import deque
 from collections.abc import Iterable
+
 import networkx as nx
-from capts.model import EdgeType, NodeType
+
+from capts.model import EdgeType, NodeType, PipelineModel
 
 IMPACT_EDGE_TYPES = {
     EdgeType.CONSUMES,
     EdgeType.INHERITS,
     EdgeType.EXECUTES,
 }
+
+
+def build_graph(model: PipelineModel) -> nx.DiGraph:
+    """Convert the universal model into CAPTS's traversal graph."""
+    graph = nx.DiGraph()
+
+    for node in model.nodes:
+        graph.add_node(
+            node.id,
+            node_type=node.node_type,
+            pipeline=node.pipeline,
+            **node.metadata,
+        )
+
+    for edge in model.edges:
+        graph.add_edge(edge.source, edge.target, edge_type=edge.edge_type)
+
+    return graph
 
 def select_affected_stages(
     graph: nx.DiGraph, changed_nodes: Iterable[str]

@@ -5,8 +5,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-import networkx as nx
-
 
 class NodeType(StrEnum):
     """Kinds of pipeline resource represented in the dependency graph."""
@@ -73,5 +71,5 @@ class ChangeEvent:
 class FormatAdapter(Protocol):
     """Maps one pipeline-definition format into the universal graph model."""
 
-    def build_graph(self, path: str | Path, *, pipeline_name: str) -> nx.DiGraph:
-        """Build a graph whose stages and templates use pipeline-qualified IDs."""
+    def parse(self, path: str | Path, *, pipeline_name: str) -> PipelineModel:
+        """Parse one pipeline file into the universal model."""
