@@ -53,10 +53,32 @@ class GitLabAdapter(FormatAdapter):
             and not name.startswith(".")
             and isinstance(definition, dict)
         }
+        templates = {
+            name: definition
+            for name, definition in pipeline.items()
+            if name.startswith(".") and isinstance(definition, dict)
+        }
         for name in jobs:
             model.nodes.append(
                 NodeInfo(f"{pipeline_name}/{name}", NodeType.STAGE, pipeline_name)
             )
+        referenced_templates = {
+            template_name
+            for definition in jobs.values()
+            for template_name in _extends(definition.get("extends"))
+            if template_name in templates
+        }
+        for name in referenced_templates:
+            model.nodes.append(
+                NodeInfo(f"{pipeline_name}/{name}", NodeType.TEMPLATE, pipeline_name)
+            )
+        scripts = {
+            script_name
+            for definition in jobs.values()
+            for script_name in _scripts(definition.get("script"))
+        }
+        for name in scripts:
+            model.nodes.append(NodeInfo(name, NodeType.SCRIPT))
 
         for job_name, definition in jobs.items():
             stage_id = f"{pipeline_name}/{job_name}"
@@ -76,6 +98,19 @@ class GitLabAdapter(FormatAdapter):
                     model.edges.append(
                         EdgeInfo(stage_id, dependency_id, EdgeType.DEPENDS_ON)
                     )
+
+            for template_name in _extends(definition.get("extends")):
+                if template_name in templates:
+                    model.edges.append(
+                        EdgeInfo(
+                            stage_id,
+                            f"{pipeline_name}/{template_name}",
+                            EdgeType.INHERITS,
+                        )
+                    )
+
+            for script_name in _scripts(definition.get("script")):
+                model.edges.append(EdgeInfo(stage_id, script_name, EdgeType.EXECUTES))
 
         return model
 
@@ -112,3 +147,23 @@ def _needs(needs: object) -> set[str]:
         elif isinstance(dependency, dict) and isinstance(dependency.get("job"), str):
             dependency_names.add(dependency["job"])
     return dependency_names
+
+def _extends(extends: object) -> list[str]:
+    if isinstance(extends, str):
+        return [extends]
+    if isinstance(extends, list):
+        return [template for template in extends if isinstance(template, str)]
+    return []
+
+def _scripts(script: object) -> set[str]:
+    if isinstance(script, str):
+        script = [script]
+    if not isinstance(script, list):
+        return set()
+    return {
+        part.split("--", maxsplit=1)[0]
+        for line in script
+        if isinstance(line, str)
+        for part in line.split()
+        if part.startswith("scripts/")
+    }
