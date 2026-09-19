@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from capts.adapters.gitlab import GitLabAdapter, parse_gitlab_pipeline
+from capts.adapters.gitlab import (
+    GitLabAdapter,
+    VariableValidationError,
+    parse_gitlab_pipeline,
+)
 from capts.graph import select_affected_stages
 from capts.model import EdgeType, NodeType
 
@@ -36,6 +40,70 @@ def test_gitlab_variable_change_selects_its_consuming_jobs() -> None:
         "main/build",
         "main/test",
     }
+
+
+def test_validation_accepts_defined_global_variable() -> None:
+    errors = GitLabAdapter().validate_variables(
+        {
+            "variables": {"SCAN_THRESHOLD": "high"},
+            "security-scan": {"script": "echo $SCAN_THRESHOLD"},
+        },
+        pipeline_name="main",
+    )
+
+    assert errors == []
+
+
+def test_validation_accepts_defined_local_variable() -> None:
+    errors = GitLabAdapter().validate_variables(
+        {
+            "variables": {"BUILD_CMD": "global"},
+            "build": {
+                "variables": {"BUILD_CMD": "local"},
+                "script": "echo $BUILD_CMD",
+            },
+        },
+        pipeline_name="main",
+    )
+
+    assert errors == []
+
+
+def test_validation_reports_undefined_variable() -> None:
+    errors = GitLabAdapter().validate_variables(
+        {"security-scan": {"script": "echo ${SCAN_THRESHOLD}"}},
+        pipeline_name="main",
+    )
+
+    assert errors == [
+        VariableValidationError("main/security-scan", "SCAN_THRESHOLD")
+    ]
+
+
+def test_validation_reports_all_undefined_variables() -> None:
+    errors = GitLabAdapter().validate_variables(
+        {"security-scan": {"script": "echo $SCAN_THRESHOLD $SEC_THRESHOLD"}},
+        pipeline_name="main",
+    )
+
+    assert errors == [
+        VariableValidationError("main/security-scan", "SCAN_THRESHOLD"),
+        VariableValidationError("main/security-scan", "SEC_THRESHOLD"),
+    ]
+
+
+def test_validation_reports_m01_style_removed_variable() -> None:
+    errors = GitLabAdapter().validate_variables(
+        {
+            "variables": {"SEC_THRESHOLD": "high"},
+            "security-scan": {"script": "echo $SCAN_THRESHOLD"},
+        },
+        pipeline_name="main",
+    )
+
+    assert errors == [
+        VariableValidationError("main/security-scan", "SCAN_THRESHOLD")
+    ]
 
 
 def test_gitlab_adapter_scans_the_full_job_and_honours_local_overrides(

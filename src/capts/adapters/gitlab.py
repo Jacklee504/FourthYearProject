@@ -3,6 +3,7 @@ import ast
 import hashlib
 import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import networkx as nx
@@ -35,6 +36,15 @@ GITLAB_GLOBAL_KEYS = {
 VARIABLE_PATTERN = re.compile(
     r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)}|([A-Za-z_][A-Za-z0-9_]*))"
 )
+
+
+@dataclass(frozen=True)
+class VariableValidationError:
+    """An undefined variable reference in one GitLab job."""
+
+    stage_id: str
+    variable_name: str
+
 
 class GitLabAdapter(FormatAdapter):
     """Map the first supported GitLab CI features into the CAPTS model."""
@@ -127,6 +137,31 @@ class GitLabAdapter(FormatAdapter):
                     changes.append(ChangeEvent(script_name, ChangeType.MODIFIED))
 
         return changes
+
+    def validate_variables(
+        self,
+        pipeline: Mapping[str, object],
+        *,
+        pipeline_name: str,
+    ) -> list[VariableValidationError]:
+        """Report variable references not defined globally or by their job."""
+        global_variables = set(_global_variables(pipeline))
+        errors = []
+
+        for job_name, definition in _jobs(pipeline).items():
+            local_variables = definition.get("variables", {})
+            if not isinstance(local_variables, Mapping):
+                raise TypeError("GitLab job variables must be a mapping.")
+            for variable_name in sorted(_referenced_variables(definition)):
+                if variable_name not in global_variables | set(local_variables):
+                    errors.append(
+                        VariableValidationError(
+                            stage_id=f"{pipeline_name}/{job_name}",
+                            variable_name=variable_name,
+                        )
+                    )
+
+        return errors
 
     def _add_pipeline(
         self,
