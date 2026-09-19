@@ -174,6 +174,81 @@ quality-check:
         ("main/quality-check", "main/.test-base", EdgeType.INHERITS),
     }
 
+def test_template_variable_dependency_selects_inheriting_job(tmp_path: Path) -> None:
+    pipeline = tmp_path / "pipeline.yml"
+    pipeline.write_text(
+        """variables:
+  SCAN_THRESHOLD: high
+
+.scan-base:
+  script: echo $SCAN_THRESHOLD
+
+security-scan:
+  extends: .scan-base
+""",
+        encoding="utf-8",
+    )
+
+    graph = parse_gitlab_pipeline(pipeline, pipeline_name="main")
+
+    assert select_affected_stages(graph, {"SCAN_THRESHOLD"}) == {"main/security-scan"}
+
+def test_template_script_dependency_selects_inheriting_job(tmp_path: Path) -> None:
+    pipeline = tmp_path / "pipeline.yml"
+    pipeline.write_text(
+        """.scan-base:
+  script: python scripts/scan.py
+
+security-scan:
+  extends: .scan-base
+""",
+        encoding="utf-8",
+    )
+
+    graph = parse_gitlab_pipeline(pipeline, pipeline_name="main")
+
+    assert select_affected_stages(graph, {"scripts/scan.py"}) == {"main/security-scan"}
+
+def test_template_inheritance_propagates_to_inheriting_job(tmp_path: Path) -> None:
+    pipeline = tmp_path / "pipeline.yml"
+    pipeline.write_text(
+        """.base:
+  image: python:3.12
+
+.test-base:
+  extends: .base
+
+unit-test:
+  extends: .test-base
+""",
+        encoding="utf-8",
+    )
+
+    graph = parse_gitlab_pipeline(pipeline, pipeline_name="main")
+
+    assert select_affected_stages(graph, {"main/.base"}) == {"main/unit-test"}
+
+def test_template_local_variable_suppresses_global_dependency(tmp_path: Path) -> None:
+    pipeline = tmp_path / "pipeline.yml"
+    pipeline.write_text(
+        """variables:
+  BUILD_CMD: global
+
+.build-base:
+  variables:
+    BUILD_CMD: local
+  script: echo $BUILD_CMD
+
+build:
+  extends: .build-base
+""",
+        encoding="utf-8",
+    )
+
+    graph = parse_gitlab_pipeline(pipeline, pipeline_name="main")
+
+    assert not graph.has_edge("main/.build-base", "BUILD_CMD")
+
 def test_gitlab_adapter_maps_script_references(tmp_path: Path) -> None:
     pipeline = tmp_path / "pipeline.yml"
     pipeline.write_text(

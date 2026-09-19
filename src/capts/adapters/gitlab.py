@@ -185,6 +185,14 @@ class GitLabAdapter(FormatAdapter):
             for template_name in _extends(definition.get("extends"))
             if template_name in templates
         }
+        pending_templates = list(referenced_templates)
+        while pending_templates:
+            template_name = pending_templates.pop()
+            template = templates[template_name]
+            for parent_name in _extends(template.get("extends")):
+                if parent_name in templates and parent_name not in referenced_templates:
+                    referenced_templates.add(parent_name)
+                    pending_templates.append(parent_name)
         for name in referenced_templates:
             _add_node(
                 model,
@@ -192,7 +200,7 @@ class GitLabAdapter(FormatAdapter):
             )
         scripts = {
             script_name
-            for definition in jobs.values()
+            for definition in [*jobs.values(), *(templates[name] for name in referenced_templates)]
             for script_name in _scripts(definition.get("script"))
         }
         for name in scripts:
@@ -229,6 +237,32 @@ class GitLabAdapter(FormatAdapter):
 
             for script_name in _scripts(definition.get("script")):
                 model.edges.append(EdgeInfo(stage_id, script_name, EdgeType.EXECUTES))
+
+        for template_name in referenced_templates:
+            template = templates[template_name]
+            template_id = f"{pipeline_name}/{template_name}"
+            local_variables = template.get("variables", {})
+            if not isinstance(local_variables, Mapping):
+                raise TypeError("GitLab template variables must be a mapping.")
+
+            for variable_name in _referenced_variables(template):
+                if variable_name in global_variables and variable_name not in local_variables:
+                    model.edges.append(
+                        EdgeInfo(template_id, variable_name, EdgeType.CONSUMES)
+                    )
+
+            for parent_name in _extends(template.get("extends")):
+                if parent_name in templates:
+                    model.edges.append(
+                        EdgeInfo(
+                            template_id,
+                            f"{pipeline_name}/{parent_name}",
+                            EdgeType.INHERITS,
+                        )
+                    )
+
+            for script_name in _scripts(template.get("script")):
+                model.edges.append(EdgeInfo(template_id, script_name, EdgeType.EXECUTES))
 
 def parse_gitlab_pipeline(path: str | Path, *, pipeline_name: str) -> nx.DiGraph:
     """Build a CAPTS graph from one GitLab pipeline file."""
