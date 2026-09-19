@@ -130,3 +130,94 @@ lint:
         ("main/test", "scripts/check.py", EdgeType.EXECUTES),
         ("main/lint", "scripts/test.py", EdgeType.EXECUTES),
     }
+
+def test_gitlab_adapter_combines_explicit_pipeline_files(tmp_path: Path) -> None:
+    main = tmp_path / "main.yml"
+    deploy = tmp_path / "deploy.yml"
+    canary = tmp_path / "canary.yml"
+    notify = tmp_path / "notify.yml"
+    main.write_text(
+        """variables:
+  SHARED_VALUE: value
+
+.base:
+  image: python:3.12
+
+build:
+  extends: .base
+  script: python scripts/shared.py $SHARED_VALUE
+
+gate:
+  trigger:
+    include:
+      - local: deploy.yml
+      - local: canary.yml
+""",
+        encoding="utf-8",
+    )
+    deploy.write_text(
+        """.base:
+  image: python:3.12
+
+build:
+  extends: .base
+  script: python scripts/shared.py $SHARED_VALUE
+
+deploy-prod:
+  needs: [build]
+  trigger:
+    include:
+      - local: notify.yml
+""",
+        encoding="utf-8",
+    )
+    canary.write_text(
+        """.base:
+  image: python:3.12
+
+build:
+  extends: .base
+  script: python scripts/shared.py
+""",
+        encoding="utf-8",
+    )
+    notify.write_text(
+        """.base:
+  image: python:3.12
+
+send-notification:
+  extends: .base
+  script: python scripts/shared.py $SHARED_VALUE
+""",
+        encoding="utf-8",
+    )
+
+    model = GitLabAdapter().parse({
+        "main": main,
+        "deploy": deploy,
+        "canary": canary,
+        "notify": notify,
+    })
+
+    assert {(node.id, node.node_type) for node in model.nodes} >= {
+        ("main/build", NodeType.STAGE),
+        ("deploy/build", NodeType.STAGE),
+        ("main/.base", NodeType.TEMPLATE),
+        ("deploy/.base", NodeType.TEMPLATE),
+        ("SHARED_VALUE", NodeType.VARIABLE),
+        ("scripts/shared.py", NodeType.SCRIPT),
+    }
+    assert [node.id for node in model.nodes].count("SHARED_VALUE") == 1
+    assert [node.id for node in model.nodes].count("scripts/shared.py") == 1
+    assert {(edge.source, edge.target, edge.edge_type) for edge in model.edges} >= {
+        ("deploy/build", "SHARED_VALUE", EdgeType.CONSUMES),
+        ("notify/send-notification", "SHARED_VALUE", EdgeType.CONSUMES),
+        ("main/build", "main/.base", EdgeType.INHERITS),
+        ("deploy/build", "deploy/.base", EdgeType.INHERITS),
+        ("main/build", "scripts/shared.py", EdgeType.EXECUTES),
+        ("deploy/deploy-prod", "deploy/build", EdgeType.DEPENDS_ON),
+    }
+    assert model.triggers == {
+        "main/gate": {"deploy/build", "deploy/deploy-prod", "canary/build"},
+        "deploy/deploy-prod": {"notify/send-notification"},
+    }

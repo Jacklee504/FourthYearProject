@@ -1,5 +1,6 @@
 """Format-independent CAPTS graph types and model data."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -71,5 +72,10 @@ class ChangeEvent:
 class FormatAdapter(Protocol):
     """Maps one pipeline-definition format into the universal graph model."""
 
-    def parse(self, path: str | Path, *, pipeline_name: str) -> PipelineModel:
-        """Parse one pipeline file into the universal model."""
+    def parse(
+        self,
+        path: str | Path | Mapping[str, str | Path],
+        *,
+        pipeline_name: str | None = None,
+    ) -> PipelineModel:
+        """Parse one or more pipeline files into the universal model."""

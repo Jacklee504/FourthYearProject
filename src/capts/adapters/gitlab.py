@@ -26,40 +26,77 @@ VARIABLE_PATTERN = re.compile(
 class GitLabAdapter(FormatAdapter):
     """Map the first supported GitLab CI features into the CAPTS model."""
 
-    def parse(self, path: str | Path, *, pipeline_name: str) -> PipelineModel:
-        """Map global variables, jobs, and ``needs`` into a pipeline model.
+    def parse(
+        self,
+        path: str | Path | Mapping[str, str | Path],
+        *,
+        pipeline_name: str | None = None,
+    ) -> PipelineModel:
+        """Map one or more GitLab pipeline files into a pipeline model.
 
         Stages use ``pipeline/job`` IDs. Variables remain global IDs because
         every pipeline in the synthetic ecosystem shares the same variables.
         """
-        with Path(path).open(encoding="utf-8") as pipeline_file:
-            pipeline = yaml.safe_load(pipeline_file) or {}
+        if isinstance(path, Mapping):
+            if pipeline_name is not None:
+                raise ValueError("Provide a pipeline name only for one pipeline file.")
+            pipeline_paths = {name: Path(file_path) for name, file_path in path.items()}
+        elif pipeline_name is not None:
+            pipeline_paths = {pipeline_name: Path(path)}
+        else:
+            raise ValueError("A pipeline name is required for one pipeline file.")
 
-        if not isinstance(pipeline, dict):
-            raise ValueError("A GitLab pipeline must be a YAML mapping.")
-
+        pipelines = {
+            name: _read_pipeline(file_path) for name, file_path in pipeline_paths.items()
+        }
+        global_variables = {
+            variable_name
+            for pipeline in pipelines.values()
+            for variable_name in _global_variables(pipeline)
+        }
         model = PipelineModel()
-        global_variables = pipeline.get("variables", {})
-        if not isinstance(global_variables, dict):
-            raise ValueError("GitLab global variables must be a mapping.")
-
         for name in global_variables:
-            model.nodes.append(NodeInfo(name, NodeType.VARIABLE))
+            _add_node(model, NodeInfo(name, NodeType.VARIABLE))
 
-        jobs = {
-            name: definition
-            for name, definition in pipeline.items()
-            if name not in GITLAB_GLOBAL_KEYS
-            and not name.startswith(".")
-            and isinstance(definition, dict)
+        pipeline_jobs = {}
+        for name, pipeline in pipelines.items():
+            jobs = _jobs(pipeline)
+            pipeline_jobs[name] = jobs
+            self._add_pipeline(model, name, pipeline, jobs, global_variables)
+
+        pipeline_names_by_path = {
+            file_path.resolve(): name for name, file_path in pipeline_paths.items()
         }
-        templates = {
-            name: definition
-            for name, definition in pipeline.items()
-            if name.startswith(".") and isinstance(definition, dict)
-        }
+        for name, jobs in pipeline_jobs.items():
+            for job_name, definition in jobs.items():
+                child_names = {
+                    pipeline_names_by_path[child_path]
+                    for child_path in _trigger_paths(definition.get("trigger"), pipeline_paths[name])
+                    if child_path in pipeline_names_by_path
+                }
+                if child_names:
+                    model.triggers[f"{name}/{job_name}"] = {
+                        node.id
+                        for node in model.nodes
+                        if node.node_type == NodeType.STAGE and node.pipeline in child_names
+                    }
+
+        return model
+
+    def _add_pipeline(
+        self,
+        model: PipelineModel,
+        pipeline_name: str,
+        pipeline: Mapping[str, object],
+        jobs: Mapping[str, Mapping[str, object]],
+        global_variables: set[str],
+    ) -> None:
+        """Add one parsed pipeline to a combined model."""
+        templates = _templates(pipeline)
+
         for name in jobs:
-            model.nodes.append(
+            _add_node(
+                model,
                 NodeInfo(f"{pipeline_name}/{name}", NodeType.STAGE, pipeline_name)
             )
         referenced_templates = {
@@ -69,7 +106,8 @@ class GitLabAdapter(FormatAdapter):
             if template_name in templates
         }
         for name in referenced_templates:
-            model.nodes.append(
+            _add_node(
+                model,
                 NodeInfo(f"{pipeline_name}/{name}", NodeType.TEMPLATE, pipeline_name)
             )
         scripts = {
@@ -78,7 +116,7 @@ class GitLabAdapter(FormatAdapter):
             for script_name in _scripts(definition.get("script"))
         }
         for name in scripts:
-            model.nodes.append(NodeInfo(name, NodeType.SCRIPT))
+            _add_node(model, NodeInfo(name, NodeType.SCRIPT))
 
         for job_name, definition in jobs.items():
             stage_id = f"{pipeline_name}/{job_name}"
@@ -112,8 +150,6 @@ class GitLabAdapter(FormatAdapter):
             for script_name in _scripts(definition.get("script")):
                 model.edges.append(EdgeInfo(stage_id, script_name, EdgeType.EXECUTES))
 
-        return model
-
 def parse_gitlab_pipeline(path: str | Path, *, pipeline_name: str) -> nx.DiGraph:
     """Build a CAPTS graph from one GitLab pipeline file."""
     return build_graph(GitLabAdapter().parse(path, pipeline_name=pipeline_name))
@@ -125,6 +161,39 @@ def _referenced_variables(definition: object) -> set[str]:
         for line in _strings(definition)
         for match in VARIABLE_PATTERN.finditer(line)
     }
+
+def _read_pipeline(path: Path) -> Mapping[str, object]:
+    with path.open(encoding="utf-8") as pipeline_file:
+        pipeline = yaml.safe_load(pipeline_file) or {}
+    if not isinstance(pipeline, dict):
+        raise ValueError("A GitLab pipeline must be a YAML mapping.")
+    return pipeline
+
+def _global_variables(pipeline: Mapping[str, object]) -> Mapping[str, object]:
+    variables = pipeline.get("variables", {})
+    if not isinstance(variables, Mapping):
+        raise ValueError("GitLab global variables must be a mapping.")
+    return variables
+
+def _jobs(pipeline: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
+    return {
+        name: definition
+        for name, definition in pipeline.items()
+        if name not in GITLAB_GLOBAL_KEYS
+        and not name.startswith(".")
+        and isinstance(definition, Mapping)
+    }
+
+def _templates(pipeline: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
+    return {
+        name: definition
+        for name, definition in pipeline.items()
+        if name.startswith(".") and isinstance(definition, Mapping)
+    }
+
+def _add_node(model: PipelineModel, node: NodeInfo) -> None:
+    if node.id not in {existing.id for existing in model.nodes}:
+        model.nodes.append(node)
 
 def _strings(value: object) -> Iterable[str]:
     if isinstance(value, str):
@@ -166,4 +235,18 @@ def _scripts(script: object) -> set[str]:
         if isinstance(line, str)
         for part in line.split()
         if part.startswith("scripts/")
+    }
+
+def _trigger_paths(trigger: object, parent_path: Path) -> set[Path]:
+    if not isinstance(trigger, Mapping):
+        return set()
+    includes = trigger.get("include", [])
+    if isinstance(includes, (str, Mapping)):
+        includes = [includes]
+    if not isinstance(includes, list):
+        return set()
+    return {
+        (parent_path.parent / include["local"]).resolve()
+        for include in includes
+        if isinstance(include, Mapping) and isinstance(include.get("local"), str)
     }
