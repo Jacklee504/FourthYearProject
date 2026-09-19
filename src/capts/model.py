@@ -84,5 +84,8 @@ class FormatAdapter(Protocol):
         self,
         old_pipeline: Mapping[str, object],
         new_pipeline: Mapping[str, object],
+        *,
+        old_script_root: str | Path | None = None,
+        new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:
         """Compare two pipeline definitions and report typed changes."""

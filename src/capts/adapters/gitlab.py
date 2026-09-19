@@ -1,4 +1,6 @@
 """Minimal GitLab CI adapter for the first CAPTS vertical slice."""
+import ast
+import hashlib
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -98,17 +100,31 @@ class GitLabAdapter(FormatAdapter):
         self,
         old_pipeline: Mapping[str, object],
         new_pipeline: Mapping[str, object],
+        *,
+        old_script_root: str | Path | None = None,
+        new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:
         """Report supported global-variable changes between two pipelines."""
         old_variables = _global_variables(old_pipeline)
         new_variables = _global_variables(new_pipeline)
-        changes = []
+        changes: list[ChangeEvent] = []
 
         for name, value in old_variables.items():
             if name not in new_variables:
                 changes.append(ChangeEvent(name, ChangeType.REMOVED))
             elif new_variables[name] != value:
                 changes.append(ChangeEvent(name, ChangeType.MODIFIED))
+
+        if old_script_root is not None and new_script_root is not None:
+            old_scripts = _referenced_scripts(old_pipeline)
+            new_scripts = _referenced_scripts(new_pipeline)
+            for script_name in old_scripts & new_scripts:
+                old_path = Path(old_script_root) / script_name
+                new_path = Path(new_script_root) / script_name
+                if old_path.is_file() and new_path.is_file() and _script_changed(
+                    old_path, new_path
+                ):
+                    changes.append(ChangeEvent(script_name, ChangeType.MODIFIED))
 
         return changes
 
@@ -190,6 +206,22 @@ def _referenced_variables(definition: object) -> set[str]:
         for line in _strings(definition)
         for match in VARIABLE_PATTERN.finditer(line)
     }
+
+def _referenced_scripts(pipeline: Mapping[str, object]) -> set[str]:
+    return {
+        script_name
+        for definition in _jobs(pipeline).values()
+        for script_name in _scripts(definition.get("script"))
+    }
+
+def _script_changed(old_path: Path, new_path: Path) -> bool:
+    if old_path.suffix == new_path.suffix == ".py":
+        return _script_semantic_hash(old_path) != _script_semantic_hash(new_path)
+    return old_path.read_bytes() != new_path.read_bytes()
+
+def _script_semantic_hash(path: Path) -> str:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return hashlib.sha256(ast.dump(tree).encode()).hexdigest()
 
 def _read_pipeline(path: Path) -> Mapping[str, object]:
     with path.open(encoding="utf-8") as pipeline_file:
