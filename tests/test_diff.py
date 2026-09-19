@@ -6,7 +6,6 @@ from capts.adapters.gitlab import parse_gitlab_pipeline
 from capts.diff import detect_changed_nodes
 from capts.graph import select_affected_stages
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 M01_BASE = FIXTURES / "m01-base.gitlab-ci.yml"
 M01_MUTATED = FIXTURES / "m01-mutated.gitlab-ci.yml"

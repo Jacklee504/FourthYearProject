@@ -1,4 +1,5 @@
 import networkx as nx
+
 from capts.graph import build_graph, select_affected_stages
 from capts.model import EdgeInfo, EdgeType, NodeInfo, NodeType, PipelineModel
 

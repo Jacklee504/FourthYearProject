@@ -1,11 +1,13 @@
 """CLI Interface for CAPTS"""
 import argparse
 from pathlib import Path
+
 import yaml
 
 from capts.adapters.gitlab import parse_gitlab_pipeline
 from capts.diff import detect_changed_nodes
 from capts.graph import select_affected_stages
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()

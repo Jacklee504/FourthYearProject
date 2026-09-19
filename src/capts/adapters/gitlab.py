@@ -1,11 +1,20 @@
 """Minimal GitLab CI adapter for the first CAPTS vertical slice."""
+import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-import re
+
 import networkx as nx
 import yaml
+
 from capts.graph import build_graph
-from capts.model import EdgeInfo, EdgeType, FormatAdapter, NodeInfo, NodeType, PipelineModel
+from capts.model import (
+    EdgeInfo,
+    EdgeType,
+    FormatAdapter,
+    NodeInfo,
+    NodeType,
+    PipelineModel,
+)
 
 GITLAB_GLOBAL_KEYS = {
     "after_script",
@@ -122,7 +131,7 @@ class GitLabAdapter(FormatAdapter):
             stage_id = f"{pipeline_name}/{job_name}"
             local_variables = definition.get("variables", {})
             if not isinstance(local_variables, Mapping):
-                raise ValueError("GitLab job variables must be a mapping.")
+                raise TypeError("GitLab job variables must be a mapping.")
 
             for variable_name in _referenced_variables(definition):
                 if variable_name in global_variables and variable_name not in local_variables:
@@ -166,13 +175,13 @@ def _read_pipeline(path: Path) -> Mapping[str, object]:
     with path.open(encoding="utf-8") as pipeline_file:
         pipeline = yaml.safe_load(pipeline_file) or {}
     if not isinstance(pipeline, dict):
-        raise ValueError("A GitLab pipeline must be a YAML mapping.")
+        raise TypeError("A GitLab pipeline must be a YAML mapping.")
     return pipeline
 
 def _global_variables(pipeline: Mapping[str, object]) -> Mapping[str, object]:
     variables = pipeline.get("variables", {})
     if not isinstance(variables, Mapping):
-        raise ValueError("GitLab global variables must be a mapping.")
+        raise TypeError("GitLab global variables must be a mapping.")
     return variables
 
 def _jobs(pipeline: Mapping[str, object]) -> dict[str, Mapping[str, object]]:

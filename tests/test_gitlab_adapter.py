@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from capts.adapters.gitlab import GitLabAdapter, parse_gitlab_pipeline
 from capts.graph import select_affected_stages
 from capts.model import EdgeType, NodeType

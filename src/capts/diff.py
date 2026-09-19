@@ -1,6 +1,7 @@
 """Map supported differences between pipeline definitions to graph nodes."""
 from collections.abc import Mapping
 
+
 def detect_changed_nodes(
     old_pipeline: Mapping[str, object], new_pipeline: Mapping[str, object]
 ) -> set[str]:
@@ -21,5 +22,5 @@ def detect_changed_nodes(
 def _global_variables(pipeline: Mapping[str, object]) -> Mapping[str, object]:
     variables = pipeline.get("variables", {})
     if not isinstance(variables, Mapping):
-        raise ValueError("GitLab global variables must be a mapping.")
+        raise TypeError("GitLab global variables must be a mapping.")
     return variables
