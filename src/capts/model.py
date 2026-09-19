@@ -79,3 +79,10 @@ class FormatAdapter(Protocol):
         pipeline_name: str | None = None,
     ) -> PipelineModel:
         """Parse one or more pipeline files into the universal model."""
+
+    def detect_changes(
+        self,
+        old_pipeline: Mapping[str, object],
+        new_pipeline: Mapping[str, object],
+    ) -> list[ChangeEvent]:
+        """Compare two pipeline definitions and report typed changes."""

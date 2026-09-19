@@ -8,6 +8,8 @@ import yaml
 
 from capts.graph import build_graph
 from capts.model import (
+    ChangeEvent,
+    ChangeType,
     EdgeInfo,
     EdgeType,
     FormatAdapter,
@@ -91,6 +93,24 @@ class GitLabAdapter(FormatAdapter):
                     }
 
         return model
+
+    def detect_changes(
+        self,
+        old_pipeline: Mapping[str, object],
+        new_pipeline: Mapping[str, object],
+    ) -> list[ChangeEvent]:
+        """Report supported global-variable changes between two pipelines."""
+        old_variables = _global_variables(old_pipeline)
+        new_variables = _global_variables(new_pipeline)
+        changes = []
+
+        for name, value in old_variables.items():
+            if name not in new_variables:
+                changes.append(ChangeEvent(name, ChangeType.REMOVED))
+            elif new_variables[name] != value:
+                changes.append(ChangeEvent(name, ChangeType.MODIFIED))
+
+        return changes
 
     def _add_pipeline(
         self,
