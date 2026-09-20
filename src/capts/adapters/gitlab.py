@@ -135,6 +135,15 @@ class GitLabAdapter(FormatAdapter):
             elif new_templates[name] != definition:
                 changes.append(ChangeEvent(node_id, ChangeType.MODIFIED))
 
+        old_jobs = _jobs(old_pipeline)
+        new_jobs = _jobs(new_pipeline)
+        for name, definition in old_jobs.items():
+            node_id = f"{pipeline_name}/{name}"
+            if name not in new_jobs:
+                changes.append(ChangeEvent(node_id, ChangeType.REMOVED))
+            elif new_jobs[name] != definition:
+                changes.append(ChangeEvent(node_id, ChangeType.MODIFIED))
+
         if old_script_root is not None and new_script_root is not None:
             old_scripts = _referenced_scripts(old_pipeline)
             new_scripts = _referenced_scripts(new_pipeline)

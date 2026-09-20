@@ -129,6 +129,63 @@ def test_changed_template_selects_inheriting_job(tmp_path: Path) -> None:
     ) == {"main/unit-test"}
 
 
+def test_unchanged_job_has_no_change_event() -> None:
+    pipeline = {"security-scan": {"script": "echo scan"}}
+
+    events = GitLabAdapter().detect_changes(pipeline, pipeline)
+
+    assert events == []
+
+
+def test_changed_job_is_reported() -> None:
+    events = GitLabAdapter().detect_changes(
+        {"security-scan": {"script": "echo scan"}},
+        {"security-scan": {"script": "echo scan", "retry": 2}},
+        pipeline_name="main",
+    )
+
+    assert [(event.node_id, event.change_type) for event in events] == [
+        ("main/security-scan", ChangeType.MODIFIED)
+    ]
+
+
+def test_removed_job_is_reported() -> None:
+    events = GitLabAdapter().detect_changes(
+        {"security-scan": {"script": "echo scan"}},
+        {},
+        pipeline_name="main",
+    )
+
+    assert [(event.node_id, event.change_type) for event in events] == [
+        ("main/security-scan", ChangeType.REMOVED)
+    ]
+
+
+def test_changed_job_selects_only_that_job_not_its_dependents(tmp_path: Path) -> None:
+    old_pipeline = {
+        "build": {"script": "echo build"},
+        "unit-test": {"needs": ["build"], "script": "echo test"},
+    }
+    new_pipeline = {
+        "build": {"script": "echo updated build"},
+        "unit-test": {"needs": ["build"], "script": "echo test"},
+    }
+    pipeline_path = tmp_path / "pipeline.yml"
+    pipeline_path.write_text(
+        "build:\n  script: echo build\nunit-test:\n  needs: [build]\n  script: echo test\n",
+        encoding="utf-8",
+    )
+
+    events = GitLabAdapter().detect_changes(
+        old_pipeline, new_pipeline, pipeline_name="main"
+    )
+    graph = parse_gitlab_pipeline(pipeline_path, pipeline_name="main")
+
+    assert select_affected_stages(
+        graph, {event.node_id for event in events}
+    ) == {"main/build"}
+
+
 def test_semantically_unchanged_script_has_no_change_event(tmp_path: Path) -> None:
     old_root = tmp_path / "old"
     new_root = tmp_path / "new"
