@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from capts.adapters.gitlab import (
     GitLabAdapter,
     VariableValidationError,
@@ -40,6 +42,44 @@ def test_gitlab_variable_change_selects_its_consuming_jobs() -> None:
         "main/build",
         "main/test",
     }
+
+
+def test_resolve_selected_jobs_returns_only_the_selected_job() -> None:
+    pipeline = {
+        "build": {"script": "make build"},
+        "test": {"script": "make test"},
+    }
+
+    jobs = GitLabAdapter().resolve_selected_jobs(
+        pipeline, {"main/test"}, pipeline_name="main"
+    )
+
+    assert jobs == {"main/test": {"script": "make test"}}
+
+
+def test_resolve_selected_jobs_keeps_same_job_names_in_separate_pipelines() -> None:
+    pipelines = {
+        "main": {"build": {"script": "make build"}},
+        "deploy": {"build": {"script": "make deploy"}},
+    }
+
+    jobs = GitLabAdapter().resolve_selected_jobs(
+        pipelines, {"deploy/build", "main/build"}
+    )
+
+    assert jobs == {
+        "deploy/build": {"script": "make deploy"},
+        "main/build": {"script": "make build"},
+    }
+
+
+def test_resolve_selected_jobs_rejects_an_unknown_stage() -> None:
+    pipeline = {"build": {"script": "make build"}}
+
+    with pytest.raises(ValueError, match="Unknown selected GitLab stage: main/test"):
+        GitLabAdapter().resolve_selected_jobs(
+            pipeline, {"main/test"}, pipeline_name="main"
+        )
 
 
 def test_validation_accepts_defined_global_variable() -> None:

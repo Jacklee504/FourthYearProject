@@ -203,6 +203,34 @@ class GitLabAdapter(FormatAdapter):
 
         return errors
 
+    def resolve_selected_jobs(
+        self,
+        pipeline: Mapping[str, object],
+        selected_stage_ids: Iterable[str],
+        *,
+        pipeline_name: str = "main",
+    ) -> dict[str, Mapping[str, object]]:
+        """Return the selected GitLab job definitions by qualified stage ID."""
+        selected_ids = sorted(set(selected_stage_ids))
+        selected_pipelines = {
+            stage_id.partition("/")[0] for stage_id in selected_ids if "/" in stage_id
+        }
+        ecosystem = {
+            name: definition
+            for name in selected_pipelines
+            if isinstance(definition := pipeline.get(name), Mapping)
+        }
+        pipelines = ecosystem if ecosystem.keys() == selected_pipelines else {pipeline_name: pipeline}
+
+        jobs = {}
+        for stage_id in selected_ids:
+            name, separator, job_name = stage_id.partition("/")
+            definition = _jobs(pipelines.get(name, {})).get(job_name) if separator else None
+            if definition is None:
+                raise ValueError(f"Unknown selected GitLab stage: {stage_id}")
+            jobs[stage_id] = definition
+        return jobs
+
     def _add_pipeline(
         self,
         model: PipelineModel,
