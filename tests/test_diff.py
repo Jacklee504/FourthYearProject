@@ -24,6 +24,10 @@ def _write_script(root: Path, script_name: str, content: str) -> None:
     script.write_text(content, encoding="utf-8")
 
 
+def _write_pipeline(path: Path, pipeline: dict[str, object]) -> None:
+    path.write_text(yaml.safe_dump(pipeline), encoding="utf-8")
+
+
 def test_m01_rename_marks_the_removed_variable_as_changed() -> None:
     events = GitLabAdapter().detect_changes(
         _load_pipeline(M01_BASE), _load_pipeline(M01_MUTATED)
@@ -184,6 +188,86 @@ def test_changed_job_selects_only_that_job_not_its_dependents(tmp_path: Path) ->
     assert select_affected_stages(
         graph, {event.node_id for event in events}
     ) == {"main/build"}
+
+
+def test_multi_pipeline_changes_keep_same_named_jobs_distinct(tmp_path: Path) -> None:
+    old_main = tmp_path / "old-main.yml"
+    new_main = tmp_path / "new-main.yml"
+    old_deploy = tmp_path / "old-deploy.yml"
+    new_deploy = tmp_path / "new-deploy.yml"
+    _write_pipeline(old_main, {"build": {"script": "echo build"}})
+    _write_pipeline(new_main, {"build": {"script": "echo updated build"}})
+    _write_pipeline(old_deploy, {"build": {"script": "echo deploy"}})
+    _write_pipeline(new_deploy, {"build": {"script": "echo deploy"}})
+
+    events = GitLabAdapter().detect_changes(
+        {"main": old_main, "deploy": old_deploy},
+        {"main": new_main, "deploy": new_deploy},
+    )
+
+    assert [(event.node_id, event.change_type) for event in events] == [
+        ("main/build", ChangeType.MODIFIED)
+    ]
+
+
+def test_multi_pipeline_template_changes_remain_qualified(tmp_path: Path) -> None:
+    old_main = tmp_path / "old-main.yml"
+    new_main = tmp_path / "new-main.yml"
+    old_deploy = tmp_path / "old-deploy.yml"
+    new_deploy = tmp_path / "new-deploy.yml"
+    _write_pipeline(old_main, {".base": {"image": "python:3.12"}})
+    _write_pipeline(new_main, {".base": {"image": "python:3.12"}})
+    _write_pipeline(old_deploy, {".base": {"image": "python:3.12"}})
+    _write_pipeline(new_deploy, {".base": {"image": "python:3.13"}})
+
+    events = GitLabAdapter().detect_changes(
+        {"main": old_main, "deploy": old_deploy},
+        {"main": new_main, "deploy": new_deploy},
+    )
+
+    assert [(event.node_id, event.change_type) for event in events] == [
+        ("deploy/.base", ChangeType.MODIFIED)
+    ]
+
+
+def test_multi_pipeline_shared_variable_change_is_not_duplicated(tmp_path: Path) -> None:
+    old_main = tmp_path / "old-main.yml"
+    new_main = tmp_path / "new-main.yml"
+    old_deploy = tmp_path / "old-deploy.yml"
+    new_deploy = tmp_path / "new-deploy.yml"
+    for path in (old_main, old_deploy):
+        _write_pipeline(path, {"variables": {"SHARED_VALUE": "old"}})
+    for path in (new_main, new_deploy):
+        _write_pipeline(path, {"variables": {"SHARED_VALUE": "new"}})
+
+    events = GitLabAdapter().detect_changes(
+        {"main": old_main, "deploy": old_deploy},
+        {"main": new_main, "deploy": new_deploy},
+    )
+
+    assert [(event.node_id, event.change_type) for event in events] == [
+        ("SHARED_VALUE", ChangeType.MODIFIED)
+    ]
+
+
+def test_multi_pipeline_child_change_is_not_attributed_to_main(tmp_path: Path) -> None:
+    old_main = tmp_path / "old-main.yml"
+    new_main = tmp_path / "new-main.yml"
+    old_deploy = tmp_path / "old-deploy.yml"
+    new_deploy = tmp_path / "new-deploy.yml"
+    _write_pipeline(old_main, {"gate": {"script": "echo gate"}})
+    _write_pipeline(new_main, {"gate": {"script": "echo gate"}})
+    _write_pipeline(old_deploy, {"deploy-prod": {"script": "echo deploy"}})
+    _write_pipeline(new_deploy, {"deploy-prod": {"script": "echo updated deploy"}})
+
+    events = GitLabAdapter().detect_changes(
+        {"main": old_main, "deploy": old_deploy},
+        {"main": new_main, "deploy": new_deploy},
+    )
+
+    assert [(event.node_id, event.change_type) for event in events] == [
+        ("deploy/deploy-prod", ChangeType.MODIFIED)
+    ]
 
 
 def test_semantically_unchanged_script_has_no_change_event(tmp_path: Path) -> None:

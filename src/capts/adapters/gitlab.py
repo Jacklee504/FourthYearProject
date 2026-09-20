@@ -116,15 +116,36 @@ class GitLabAdapter(FormatAdapter):
         new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:
         """Report supported global-variable changes between two pipelines."""
+        old_paths = _pipeline_paths(old_pipeline)
+        new_paths = _pipeline_paths(new_pipeline)
+        if old_paths is not None and new_paths is not None:
+            old_pipelines = {
+                name: _read_pipeline(Path(path)) for name, path in old_paths.items()
+            }
+            new_pipelines = {
+                name: _read_pipeline(Path(path)) for name, path in new_paths.items()
+            }
+            changes = _variable_changes(
+                _combined_variables(old_pipelines.values()),
+                _combined_variables(new_pipelines.values()),
+            )
+            for name in old_pipelines.keys() | new_pipelines.keys():
+                changes.extend(
+                    event
+                    for event in self.detect_changes(
+                        old_pipelines.get(name, {}),
+                        new_pipelines.get(name, {}),
+                        pipeline_name=name,
+                        old_script_root=old_script_root,
+                        new_script_root=new_script_root,
+                    )
+                    if "/" in event.node_id
+                )
+            return _unique_changes(changes)
+
         old_variables = _global_variables(old_pipeline)
         new_variables = _global_variables(new_pipeline)
-        changes: list[ChangeEvent] = []
-
-        for name, value in old_variables.items():
-            if name not in new_variables:
-                changes.append(ChangeEvent(name, ChangeType.REMOVED))
-            elif new_variables[name] != value:
-                changes.append(ChangeEvent(name, ChangeType.MODIFIED))
+        changes = _variable_changes(old_variables, new_variables)
 
         old_templates = _templates(old_pipeline)
         new_templates = _templates(new_pipeline)
@@ -323,6 +344,47 @@ def _global_variables(pipeline: Mapping[str, object]) -> Mapping[str, object]:
     if not isinstance(variables, Mapping):
         raise TypeError("GitLab global variables must be a mapping.")
     return variables
+
+def _combined_variables(
+    pipelines: Iterable[Mapping[str, object]],
+) -> dict[str, object]:
+    variables: dict[str, object] = {}
+    for pipeline in pipelines:
+        variables.update(_global_variables(pipeline))
+    return variables
+
+def _variable_changes(
+    old_variables: Mapping[str, object], new_variables: Mapping[str, object]
+) -> list[ChangeEvent]:
+    changes = []
+    for name, value in old_variables.items():
+        if name not in new_variables:
+            changes.append(ChangeEvent(name, ChangeType.REMOVED))
+        elif new_variables[name] != value:
+            changes.append(ChangeEvent(name, ChangeType.MODIFIED))
+    return changes
+
+def _unique_changes(changes: Iterable[ChangeEvent]) -> list[ChangeEvent]:
+    unique_changes = []
+    seen = set()
+    for change in changes:
+        key = (change.node_id, change.change_type)
+        if key not in seen:
+            seen.add(key)
+            unique_changes.append(change)
+    return unique_changes
+
+def _pipeline_paths(
+    pipeline: Mapping[str, object],
+) -> Mapping[str, str | Path] | None:
+    paths = {
+        name: path
+        for name, path in pipeline.items()
+        if isinstance(path, (str, Path))
+    }
+    if paths and len(paths) == len(pipeline):
+        return paths
+    return None
 
 def _jobs(pipeline: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
     return {
