@@ -4,6 +4,7 @@ from capts.model import (
     ChangeType,
     EdgeInfo,
     EdgeType,
+    ExecutionResult,
     FormatAdapter,
     NodeInfo,
     NodeType,
@@ -36,6 +37,21 @@ def test_pipeline_model_holds_nodes_edges_and_changes() -> None:
     assert model.nodes[0].id == "main/build"
     assert model.edges[0].edge_type == EdgeType.CONSUMES
     assert change.change_type == ChangeType.REMOVED
+
+
+def test_execution_result_reports_a_passing_stage() -> None:
+    result = ExecutionResult("main/build", exit_code=0)
+
+    assert result.stage_id == "main/build"
+    assert result.stderr == ""
+    assert result.passed
+
+
+def test_execution_result_reports_a_failing_stage() -> None:
+    result = ExecutionResult("main/build", exit_code=1, stderr="build failed")
+
+    assert result.stderr == "build failed"
+    assert not result.passed
 
 
 def test_gitlab_adapter_implements_the_format_adapter_contract() -> None:

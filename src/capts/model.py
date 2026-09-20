@@ -68,6 +68,20 @@ class ChangeEvent:
     details: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ExecutionResult:
+    """The format-independent result of executing one stage."""
+
+    stage_id: str
+    exit_code: int
+    stderr: str = ""
+
+    @property
+    def passed(self) -> bool:
+        """Whether the stage completed successfully."""
+        return self.exit_code == 0
+
+
 @runtime_checkable
 class FormatAdapter(Protocol):
     """Maps one pipeline-definition format into the universal graph model."""
