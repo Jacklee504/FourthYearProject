@@ -85,6 +85,7 @@ class FormatAdapter(Protocol):
         old_pipeline: Mapping[str, object],
         new_pipeline: Mapping[str, object],
         *,
+        pipeline_name: str = "main",
         old_script_root: str | Path | None = None,
         new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:

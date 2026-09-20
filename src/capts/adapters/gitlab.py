@@ -111,6 +111,7 @@ class GitLabAdapter(FormatAdapter):
         old_pipeline: Mapping[str, object],
         new_pipeline: Mapping[str, object],
         *,
+        pipeline_name: str = "main",
         old_script_root: str | Path | None = None,
         new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:
@@ -124,6 +125,15 @@ class GitLabAdapter(FormatAdapter):
                 changes.append(ChangeEvent(name, ChangeType.REMOVED))
             elif new_variables[name] != value:
                 changes.append(ChangeEvent(name, ChangeType.MODIFIED))
+
+        old_templates = _templates(old_pipeline)
+        new_templates = _templates(new_pipeline)
+        for name, definition in old_templates.items():
+            node_id = f"{pipeline_name}/{name}"
+            if name not in new_templates:
+                changes.append(ChangeEvent(node_id, ChangeType.REMOVED))
+            elif new_templates[name] != definition:
+                changes.append(ChangeEvent(node_id, ChangeType.MODIFIED))
 
         if old_script_root is not None and new_script_root is not None:
             old_scripts = _referenced_scripts(old_pipeline)
