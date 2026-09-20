@@ -43,6 +43,7 @@ def test_execution_result_reports_a_passing_stage() -> None:
     result = ExecutionResult("main/build", exit_code=0)
 
     assert result.stage_id == "main/build"
+    assert result.stdout == ""
     assert result.stderr == ""
     assert result.passed
 

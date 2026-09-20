@@ -74,6 +74,7 @@ class ExecutionResult:
 
     stage_id: str
     exit_code: int
+    stdout: str = ""
     stderr: str = ""
 
     @property
