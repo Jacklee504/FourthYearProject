@@ -1,7 +1,7 @@
 """Local execution for the first CAPTS GitLab job slice."""
 
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from capts.model import ExecutionResult
@@ -34,3 +34,16 @@ def execute_gitlab_job(
         stdout=completed.stdout,
         stderr=completed.stderr,
     )
+
+
+def execute_gitlab_jobs(
+    selected_stage_ids: Iterable[str],
+    jobs: Mapping[str, Mapping[str, object]],
+    *,
+    workspace: str | Path,
+) -> list[ExecutionResult]:
+    """Execute the selected GitLab jobs in stable order."""
+    return [
+        execute_gitlab_job(stage_id, jobs[stage_id], workspace=workspace)
+        for stage_id in sorted(selected_stage_ids)
+    ]
