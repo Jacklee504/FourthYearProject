@@ -9,6 +9,7 @@ from capts.model import (
     NodeInfo,
     NodeType,
     PipelineModel,
+    Verdict,
 )
 
 
@@ -25,6 +26,8 @@ def test_model_labels_are_stable_strings() -> None:
     assert ChangeType.REMOVED == "removed"
     assert ChangeType.MODIFIED == "modified"
     assert ChangeType.RENAMED == "renamed"
+    assert Verdict.PASS == "pass"
+    assert Verdict.FAIL == "fail"
 
 
 def test_pipeline_model_holds_nodes_edges_and_changes() -> None:

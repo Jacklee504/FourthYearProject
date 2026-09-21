@@ -4,7 +4,7 @@ import subprocess
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from capts.model import EdgeType, ExecutionResult, PipelineModel
+from capts.model import EdgeType, ExecutionResult, PipelineModel, Verdict
 
 
 def execute_gitlab_job(
@@ -84,3 +84,8 @@ def order_execution_stages(
         ordered.append(ready)
         remaining.remove(ready)
     return ordered
+
+
+def execution_verdict(results: Iterable[ExecutionResult]) -> Verdict:
+    """Return the overall verdict for the supplied stage results."""
+    return Verdict.PASS if all(result.passed for result in results) else Verdict.FAIL

@@ -31,6 +31,13 @@ class ChangeType(StrEnum):
     RENAMED = "renamed"
 
 
+class Verdict(StrEnum):
+    """The overall result of a CAPTS execution."""
+
+    PASS = "pass"
+    FAIL = "fail"
+
+
 @dataclass
 class NodeInfo:
     """One format-independent pipeline node."""

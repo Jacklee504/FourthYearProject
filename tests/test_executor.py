@@ -1,9 +1,10 @@
 from capts.executor import (
     execute_gitlab_job,
     execute_gitlab_jobs,
+    execution_verdict,
     order_execution_stages,
 )
-from capts.model import EdgeInfo, EdgeType, PipelineModel
+from capts.model import EdgeInfo, EdgeType, ExecutionResult, PipelineModel, Verdict
 
 
 def test_execute_gitlab_job_returns_a_passing_result(tmp_path) -> None:
@@ -117,3 +118,25 @@ def test_execution_order_does_not_add_unselected_stages() -> None:
     )
 
     assert order_execution_stages(model, {"main/build"}) == ["main/build"]
+
+
+def test_execution_verdict_passes_when_all_stages_pass() -> None:
+    results = [
+        ExecutionResult("main/build", 0),
+        ExecutionResult("main/test", 0),
+    ]
+
+    assert execution_verdict(results) == Verdict.PASS
+
+
+def test_execution_verdict_fails_when_one_stage_fails() -> None:
+    results = [
+        ExecutionResult("main/build", 0),
+        ExecutionResult("main/test", 1),
+    ]
+
+    assert execution_verdict(results) == Verdict.FAIL
+
+
+def test_execution_verdict_passes_without_selected_stages() -> None:
+    assert execution_verdict([]) == Verdict.PASS
