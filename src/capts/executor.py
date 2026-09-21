@@ -4,7 +4,7 @@ import subprocess
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from capts.model import ExecutionResult
+from capts.model import EdgeType, ExecutionResult, PipelineModel
 
 
 def execute_gitlab_job(
@@ -41,9 +41,46 @@ def execute_gitlab_jobs(
     jobs: Mapping[str, Mapping[str, object]],
     *,
     workspace: str | Path,
+    model: PipelineModel | None = None,
 ) -> list[ExecutionResult]:
     """Execute the selected GitLab jobs in stable order."""
     return [
         execute_gitlab_job(stage_id, jobs[stage_id], workspace=workspace)
-        for stage_id in sorted(selected_stage_ids)
+        for stage_id in (
+            order_execution_stages(model, selected_stage_ids)
+            if model is not None
+            else sorted(selected_stage_ids)
+        )
     ]
+
+
+def order_execution_stages(
+    model: PipelineModel, selected_stage_ids: Iterable[str]
+) -> list[str]:
+    """Order selected stages by explicit dependencies and triggers."""
+    remaining = set(selected_stage_ids)
+    dependencies: dict[str, set[str]] = {stage_id: set() for stage_id in remaining}
+
+    for edge in model.edges:
+        if (
+            edge.edge_type == EdgeType.DEPENDS_ON
+            and edge.source in remaining
+            and edge.target in remaining
+        ):
+            dependencies[edge.source].add(edge.target)
+
+    for trigger_job, child_stages in model.triggers.items():
+        if trigger_job in remaining:
+            for child_stage in child_stages & remaining:
+                dependencies[child_stage].add(trigger_job)
+
+    ordered = []
+    while remaining:
+        ready = min(
+            stage_id
+            for stage_id in remaining
+            if not dependencies[stage_id] & remaining
+        )
+        ordered.append(ready)
+        remaining.remove(ready)
+    return ordered
