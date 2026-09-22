@@ -6,11 +6,12 @@ from capts.model import (
     ChangeType,
     EdgeInfo,
     EdgeType,
+    ExecutionResult,
     NodeInfo,
     NodeType,
     PipelineModel,
 )
-from capts.risk import compute_risk_score
+from capts.risk import compute_risk_score, score_selected_stages
 
 
 def test_risk_score_for_a_direct_local_removal() -> None:
@@ -76,3 +77,56 @@ def test_risk_scores_reflect_fan_out_and_cross_pipeline_impact() -> None:
         cross_pipeline_score.fan_out,
         cross_pipeline_score.cross_pipeline,
     ) == (1.0, 0.0, 1.0)
+
+
+def test_score_selected_stages_attaches_independent_risks() -> None:
+    graph = build_graph(
+        PipelineModel(
+            nodes=[
+                NodeInfo("FEATURE_FLAGS", NodeType.VARIABLE, pipeline="main"),
+                NodeInfo("main/build", NodeType.STAGE, pipeline="main"),
+                NodeInfo("deploy/test", NodeType.STAGE, pipeline="deploy"),
+            ],
+            edges=[
+                EdgeInfo("main/build", "FEATURE_FLAGS", EdgeType.CONSUMES),
+                EdgeInfo("deploy/test", "FEATURE_FLAGS", EdgeType.CONSUMES),
+                EdgeInfo("deploy/test", "main/build", EdgeType.DEPENDS_ON),
+            ],
+        )
+    )
+
+    scored_stages = score_selected_stages(
+        graph,
+        ChangeEvent("FEATURE_FLAGS", ChangeType.RENAMED),
+        {"main/build", "deploy/test"},
+    )
+
+    assert [(stage.stage_id, stage.risk.overall) for stage in scored_stages] == [
+        ("deploy/test", pytest.approx(78.0)),
+        ("main/build", pytest.approx(58.0)),
+    ]
+    assert all(stage.execution_result is None for stage in scored_stages)
+
+
+def test_execution_result_does_not_change_selected_stage_risk() -> None:
+    graph = build_graph(
+        PipelineModel(
+            nodes=[
+                NodeInfo("BUILD_CMD", NodeType.VARIABLE, pipeline="main"),
+                NodeInfo("main/release", NodeType.STAGE, pipeline="main"),
+            ],
+            edges=[EdgeInfo("main/release", "BUILD_CMD", EdgeType.CONSUMES)],
+        )
+    )
+    change = ChangeEvent("BUILD_CMD", ChangeType.REMOVED)
+
+    passing = score_selected_stages(
+        graph, change, {"main/release"}, [ExecutionResult("main/release", 0)]
+    )[0]
+    failing = score_selected_stages(
+        graph, change, {"main/release"}, [ExecutionResult("main/release", 1)]
+    )[0]
+
+    assert passing.risk == failing.risk
+    assert passing.execution_result is not None and passing.execution_result.passed
+    assert failing.execution_result is not None and not failing.execution_result.passed

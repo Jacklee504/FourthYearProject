@@ -1,10 +1,11 @@
 """Deterministic risk scoring from the CAPTS graph model."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import networkx as nx
 
-from capts.model import ChangeEvent, NodeType
+from capts.model import ChangeEvent, ExecutionResult, NodeType
 
 CHANGE_SEVERITY = {
     "removed": 1.0,
@@ -37,6 +38,15 @@ class RiskScore:
     level: str
 
 
+@dataclass(frozen=True)
+class ScoredStage:
+    """A selected stage with its deterministic risk and optional execution."""
+
+    stage_id: str
+    risk: RiskScore
+    execution_result: ExecutionResult | None = None
+
+
 def compute_risk_score(
     graph: nx.DiGraph,
     changed_node: str,
@@ -54,6 +64,24 @@ def compute_risk_score(
     overall = sum(scores[name] * WEIGHTS[name] for name in WEIGHTS) * 100
     level = "CRITICAL" if overall >= 75 else "HIGH" if overall >= 50 else "MEDIUM" if overall >= 25 else "LOW"
     return RiskScore(stage=affected_stage, overall=overall, level=level, **scores)
+
+
+def score_selected_stages(
+    graph: nx.DiGraph,
+    change: ChangeEvent,
+    selected_stage_ids: Iterable[str],
+    execution_results: Iterable[ExecutionResult] = (),
+) -> list[ScoredStage]:
+    """Attach deterministic risk to selected stages and their results."""
+    results_by_stage = {result.stage_id: result for result in execution_results}
+    return [
+        ScoredStage(
+            stage_id=stage_id,
+            risk=compute_risk_score(graph, change.node_id, stage_id, change),
+            execution_result=results_by_stage.get(stage_id),
+        )
+        for stage_id in sorted(selected_stage_ids)
+    ]
 
 
 def _critical_path_score(graph: nx.DiGraph, stage: str) -> float:
