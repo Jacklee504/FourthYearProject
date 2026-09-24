@@ -1,0 +1,52 @@
+# Main pipeline - triggered on push
+# 6 stages: build, lint, unit-test, security-scan, package, gate
+variables:
+  REGISTRY_URL: "registry.example.com"
+  SCAN_THRESHOLD: "high"
+  FEATURE_FLAGS: "enable_v2=true,dark_launch=false"
+  NOTIFICATION_CHANNEL: "#deployments"
+  BUILD_CMD: "make build"
+  DEPLOY_STRATEGY: "blue-green"
+.base-job:
+  retry: 2
+  timeout: 10m
+.test-base:
+  extends: .base-job
+  script:
+    - python scripts/test_runner.py
+build:
+  extends: .base-job
+  script:
+    - python scripts/build.py --registry $REGISTRY_URL --cmd "$BUILD_CMD"
+  needs: []
+lint:
+  extends: .base-job
+  script:
+    - echo "running $BUILD_CMD lint"
+  needs: []
+unit-test:
+  extends: .test-base
+  needs: [build]
+  variables:
+    TEST_SUITE: "unit"
+  script:
+    - python scripts/test_runner.py --flags "$FEATURE_FLAGS"
+security-scan:
+  extends: .base-job
+  needs: [build]
+  variables:
+    BUILD_CMD: "make scan"
+  script:
+    - python scripts/scan.py --threshold $SCAN_THRESHOLD
+package:
+  extends: .base-job
+  needs: [unit-test, lint]
+  script:
+    - echo "packaging to $REGISTRY_URL"
+gate:
+  extends: .base-job
+  needs: [package, security-scan]
+  trigger:
+    include:
+      - local: deploy.yml
+      - local: canary.yml

@@ -1,0 +1,9 @@
+# Notify pipeline - triggered by deploy-prod in deploy
+.notify-base:
+  retry: 0
+  timeout: 5m
+send-notification:
+  extends: .notify-base
+  needs: []
+  script:
+    - python scripts/notify.py --channel "$NOTIFICATION_CHANNEL"

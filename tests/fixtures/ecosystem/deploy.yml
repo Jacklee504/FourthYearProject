@@ -1,0 +1,27 @@
+# Deploy pipeline - triggered by gate in main
+.deploy-base:
+  retry: 1
+  timeout: 15m
+  script:
+    - python scripts/deploy.py
+.test-base:
+  script:
+    - python scripts/test_runner.py
+deploy-staging:
+  extends: .deploy-base
+  needs: []
+  script:
+    - python scripts/deploy.py --strategy $DEPLOY_STRATEGY --registry $REGISTRY_URL
+smoke-test:
+  extends: .test-base
+  needs: [deploy-staging]
+  script:
+    - python scripts/test_runner.py --flags "$FEATURE_FLAGS"
+deploy-prod:
+  extends: .deploy-base
+  needs: [smoke-test]
+  script:
+    - python scripts/deploy.py --strategy $DEPLOY_STRATEGY --registry $REGISTRY_URL
+  trigger:
+    include:
+      - local: notify.yml

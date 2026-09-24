@@ -1,12 +1,8 @@
 """CLI Interface for CAPTS"""
 import argparse
-from pathlib import Path
 
-import yaml
-
-from capts.adapters.gitlab import parse_gitlab_pipeline
-from capts.diff import detect_changed_nodes
-from capts.graph import select_affected_stages
+from capts.adapters.gitlab import GitLabAdapter
+from capts.graph import build_graph, select_affected_stages
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,13 +12,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pipeline-name", default="main")
     args = parser.parse_args(argv)
 
-    with Path(args.before).open(encoding="utf-8") as file:
-        before = yaml.safe_load(file) or {}
-    with Path(args.after).open(encoding="utf-8") as file:
-        after = yaml.safe_load(file) or {}
-
-    graph = parse_gitlab_pipeline(args.before, pipeline_name=args.pipeline_name)
-    changed = detect_changed_nodes(before, after)
+    adapter = GitLabAdapter()
+    graph = build_graph(adapter.parse(args.before, pipeline_name=args.pipeline_name))
+    changed = {
+        event.node_id
+        for event in adapter.detect_changes(
+            args.before, args.after, pipeline_name=args.pipeline_name
+        )
+    }
 
     for stage in sorted(select_affected_stages(graph, changed)):
         print(stage)

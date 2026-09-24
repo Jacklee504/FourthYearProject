@@ -1,0 +1,19 @@
+# Canary pipeline - triggered by gate in main
+.deploy-base:
+  retry: 1
+  timeout: 15m
+  script:
+    - python scripts/deploy.py
+.test-base:
+  script:
+    - python scripts/test_runner.py
+deploy-canary:
+  extends: .deploy-base
+  needs: []
+  script:
+    - python scripts/deploy.py --registry $REGISTRY_URL
+canary-test:
+  extends: .test-base
+  needs: [deploy-canary]
+  script:
+    - python scripts/test_runner.py --flags "$FEATURE_FLAGS"

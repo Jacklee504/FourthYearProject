@@ -104,8 +104,8 @@ class FormatAdapter(Protocol):
 
     def detect_changes(
         self,
-        old_pipeline: Mapping[str, object],
-        new_pipeline: Mapping[str, object],
+        old_pipeline: Mapping[str, object] | str | Path,
+        new_pipeline: Mapping[str, object] | str | Path,
         *,
         pipeline_name: str = "main",
         old_script_root: str | Path | None = None,

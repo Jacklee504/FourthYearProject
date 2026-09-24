@@ -108,14 +108,18 @@ class GitLabAdapter(FormatAdapter):
 
     def detect_changes(
         self,
-        old_pipeline: Mapping[str, object],
-        new_pipeline: Mapping[str, object],
+        old_pipeline: Mapping[str, object] | str | Path,
+        new_pipeline: Mapping[str, object] | str | Path,
         *,
         pipeline_name: str = "main",
         old_script_root: str | Path | None = None,
         new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:
         """Report supported global-variable changes between two pipelines."""
+        if not isinstance(old_pipeline, Mapping):
+            old_pipeline = _read_pipeline(Path(old_pipeline))
+        if not isinstance(new_pipeline, Mapping):
+            new_pipeline = _read_pipeline(Path(new_pipeline))
         old_paths = _pipeline_paths(old_pipeline)
         new_paths = _pipeline_paths(new_pipeline)
         if old_paths is not None and new_paths is not None:
