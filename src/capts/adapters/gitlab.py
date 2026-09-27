@@ -164,10 +164,15 @@ class GitLabAdapter(FormatAdapter):
         new_jobs = _jobs(new_pipeline)
         for name, definition in old_jobs.items():
             node_id = f"{pipeline_name}/{name}"
+            details: dict[str, object] = {}
             if name not in new_jobs:
-                changes.append(ChangeEvent(node_id, ChangeType.REMOVED))
+                if "trigger" in definition:
+                    details["trigger_changed"] = True
+                changes.append(ChangeEvent(node_id, ChangeType.REMOVED, details))
             elif new_jobs[name] != definition:
-                changes.append(ChangeEvent(node_id, ChangeType.MODIFIED))
+                if definition.get("trigger") != new_jobs[name].get("trigger"):
+                    details["trigger_changed"] = True
+                changes.append(ChangeEvent(node_id, ChangeType.MODIFIED, details))
 
         if old_script_root is not None and new_script_root is not None:
             old_scripts = _referenced_scripts(old_pipeline)

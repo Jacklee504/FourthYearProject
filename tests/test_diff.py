@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from capts.adapters.gitlab import GitLabAdapter, parse_gitlab_pipeline
@@ -150,6 +151,51 @@ def test_changed_job_is_reported() -> None:
 
     assert [(event.node_id, event.change_type) for event in events] == [
         ("main/security-scan", ChangeType.MODIFIED)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("old_job", "new_job", "trigger_changed"),
+    [
+        ({"trigger": {"include": "deploy.yml"}}, {"trigger": {"include": "deploy.yml"}}, None),
+        ({"trigger": {"include": "deploy.yml"}}, {"trigger": {"include": "canary.yml"}}, True),
+        ({"trigger": {"include": "deploy.yml"}}, {"script": "echo ready"}, True),
+        ({"script": "echo ready"}, {"script": "echo ready", "trigger": {"include": "deploy.yml"}}, True),
+        ({"trigger": {"include": "deploy.yml", "variables": {"TARGET": "staging"}}}, {"trigger": {"include": "deploy.yml", "variables": {"TARGET": "prod"}}}, True),
+        ({"trigger": {"include": "deploy.yml"}, "retry": 1}, {"trigger": {"include": "deploy.yml"}, "retry": 2}, False),
+    ],
+)
+def test_only_direct_trigger_changes_are_marked(
+    old_job: dict[str, object], new_job: dict[str, object], trigger_changed: bool | None
+) -> None:
+    events = GitLabAdapter().detect_changes({"gate": old_job}, {"gate": new_job})
+
+    if trigger_changed is None:
+        assert events == []
+    else:
+        assert [(event.node_id, event.change_type, event.details) for event in events] == [
+            ("main/gate", ChangeType.MODIFIED, {"trigger_changed": True} if trigger_changed else {})
+        ]
+
+
+def test_template_change_does_not_mark_inheriting_trigger_job() -> None:
+    before = {".base": {"retry": 1}, "gate": {"extends": ".base", "trigger": {"include": "deploy.yml"}}}
+    after = {".base": {"retry": 2}, "gate": {"extends": ".base", "trigger": {"include": "deploy.yml"}}}
+
+    events = GitLabAdapter().detect_changes(before, after)
+
+    assert [(event.node_id, event.change_type, event.details) for event in events] == [
+        ("main/.base", ChangeType.MODIFIED, {})
+    ]
+
+
+def test_removed_trigger_job_is_marked() -> None:
+    events = GitLabAdapter().detect_changes(
+        {"gate": {"trigger": {"include": "deploy.yml"}}}, {}
+    )
+
+    assert [(event.node_id, event.change_type, event.details) for event in events] == [
+        ("main/gate", ChangeType.REMOVED, {"trigger_changed": True})
     ]
 
 
