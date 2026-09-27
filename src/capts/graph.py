@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 import networkx as nx
 
-from capts.model import EdgeType, NodeType, PipelineModel
+from capts.model import ChangeEvent, ChangeType, EdgeType, NodeType, PipelineModel
 
 IMPACT_EDGE_TYPES = {
     EdgeType.CONSUMES,
@@ -30,6 +30,29 @@ def build_graph(model: PipelineModel) -> nx.DiGraph:
         graph.add_edge(edge.source, edge.target, edge_type=edge.edge_type)
 
     return graph
+
+
+def enrich_changed_nodes(
+    graph: nx.DiGraph, changes: Iterable[ChangeEvent]
+) -> set[str]:
+    """Add direct dependents of removed stages to the changed roots."""
+    events = list(changes)
+    changed = {event.node_id for event in events}
+    for event in events:
+        if (
+            event.change_type != ChangeType.REMOVED
+            or event.node_id not in graph
+            or graph.nodes[event.node_id].get("node_type") != NodeType.STAGE
+        ):
+            continue
+        for dependent in graph.predecessors(event.node_id):
+            if (
+                graph.nodes[dependent].get("node_type") == NodeType.STAGE
+                and graph.edges[dependent, event.node_id].get("edge_type")
+                == EdgeType.DEPENDS_ON
+            ):
+                changed.add(dependent)
+    return changed
 
 def select_affected_stages(
     graph: nx.DiGraph, changed_nodes: Iterable[str]

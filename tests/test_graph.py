@@ -1,7 +1,16 @@
 import networkx as nx
+import pytest
 
-from capts.graph import build_graph, select_affected_stages
-from capts.model import EdgeInfo, EdgeType, NodeInfo, NodeType, PipelineModel
+from capts.graph import build_graph, enrich_changed_nodes, select_affected_stages
+from capts.model import (
+    ChangeEvent,
+    ChangeType,
+    EdgeInfo,
+    EdgeType,
+    NodeInfo,
+    NodeType,
+    PipelineModel,
+)
 
 
 def test_build_graph_preserves_model_nodes_and_edges() -> None:
@@ -90,3 +99,58 @@ def test_directly_changed_stage_is_selected_without_touching_unrelated_stages() 
     graph.add_node("main/lint", node_type=NodeType.STAGE)
 
     assert select_affected_stages(graph, {"main/build"}) == {"main/build"}
+
+
+@pytest.mark.parametrize(
+    ("removed", "dependent"),
+    [
+        ("main/security-scan", "main/gate"),
+        ("deploy/smoke-test", "deploy/deploy-prod"),
+    ],
+)
+def test_removed_stage_enriches_its_direct_dependent(
+    removed: str, dependent: str
+) -> None:
+    graph = nx.DiGraph()
+    for stage in (removed, dependent, "main/unrelated"):
+        graph.add_node(stage, node_type=NodeType.STAGE)
+    graph.add_edge(dependent, removed, edge_type=EdgeType.DEPENDS_ON)
+
+    roots = enrich_changed_nodes(graph, [ChangeEvent(removed, ChangeType.REMOVED)])
+
+    assert roots == {removed, dependent}
+    assert select_affected_stages(graph, roots) == {removed, dependent}
+
+
+def test_removed_stage_enriches_multiple_dependents() -> None:
+    graph = nx.DiGraph()
+    for stage in ("main/build", "main/test", "main/lint"):
+        graph.add_node(stage, node_type=NodeType.STAGE)
+    for dependent in ("main/test", "main/lint"):
+        graph.add_edge(dependent, "main/build", edge_type=EdgeType.DEPENDS_ON)
+
+    assert enrich_changed_nodes(graph, [ChangeEvent("main/build", ChangeType.REMOVED)]) == {
+        "main/build", "main/test", "main/lint"
+    }
+
+
+def test_modified_stage_does_not_enrich_dependents() -> None:
+    graph = nx.DiGraph()
+    graph.add_node("main/build", node_type=NodeType.STAGE)
+    graph.add_node("main/test", node_type=NodeType.STAGE)
+    graph.add_edge("main/test", "main/build", edge_type=EdgeType.DEPENDS_ON)
+
+    assert enrich_changed_nodes(graph, [ChangeEvent("main/build", ChangeType.MODIFIED)]) == {
+        "main/build"
+    }
+
+
+def test_removed_non_stage_does_not_enrich_dependents() -> None:
+    graph = nx.DiGraph()
+    graph.add_node("BUILD_CMD", node_type=NodeType.VARIABLE)
+    graph.add_node("main/build", node_type=NodeType.STAGE)
+    graph.add_edge("main/build", "BUILD_CMD", edge_type=EdgeType.CONSUMES)
+
+    assert enrich_changed_nodes(graph, [ChangeEvent("BUILD_CMD", ChangeType.REMOVED)]) == {
+        "BUILD_CMD"
+    }
