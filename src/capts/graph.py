@@ -89,3 +89,21 @@ def select_affected_stages(
         for node in affected
         if graph.nodes[node].get("node_type") == NodeType.STAGE
     }
+
+
+def select_affected_with_triggers(
+    model: PipelineModel, changes: Iterable[ChangeEvent]
+) -> set[str]:
+    """Select semantic impacts and children of directly changed triggers."""
+    events = list(changes)
+    graph = build_graph(model)
+    affected = select_affected_stages(graph, enrich_changed_nodes(graph, events))
+    direct_triggers = {
+        event.node_id for event in events if event.details.get("trigger_changed") is True
+    }
+    expanded: set[str] = set()
+    while pending := (direct_triggers & affected) - expanded:
+        trigger_job = min(pending)
+        expanded.add(trigger_job)
+        affected.update(model.triggers.get(trigger_job, set()))
+    return affected

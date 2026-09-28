@@ -1,7 +1,12 @@
 import networkx as nx
 import pytest
 
-from capts.graph import build_graph, enrich_changed_nodes, select_affected_stages
+from capts.graph import (
+    build_graph,
+    enrich_changed_nodes,
+    select_affected_stages,
+    select_affected_with_triggers,
+)
 from capts.model import (
     ChangeEvent,
     ChangeType,
@@ -154,3 +159,90 @@ def test_removed_non_stage_does_not_enrich_dependents() -> None:
     assert enrich_changed_nodes(graph, [ChangeEvent("BUILD_CMD", ChangeType.REMOVED)]) == {
         "BUILD_CMD"
     }
+
+
+def _trigger_model() -> PipelineModel:
+    return PipelineModel(
+        nodes=[
+            NodeInfo("main/gate", NodeType.STAGE),
+            NodeInfo("deploy/deploy-prod", NodeType.STAGE),
+            NodeInfo("deploy/smoke-test", NodeType.STAGE),
+            NodeInfo("canary/deploy-canary", NodeType.STAGE),
+            NodeInfo("notify/send-notification", NodeType.STAGE),
+            NodeInfo("BUILD_CMD", NodeType.VARIABLE),
+            NodeInfo("main/.base", NodeType.TEMPLATE),
+        ],
+        edges=[
+            EdgeInfo("main/gate", "BUILD_CMD", EdgeType.CONSUMES),
+            EdgeInfo("main/gate", "main/.base", EdgeType.INHERITS),
+        ],
+        triggers={
+            "main/gate": {"deploy/deploy-prod", "deploy/smoke-test", "canary/deploy-canary"},
+            "deploy/deploy-prod": {"notify/send-notification"},
+        },
+    )
+
+
+def test_direct_trigger_change_selects_child_pipelines() -> None:
+    affected = select_affected_with_triggers(
+        _trigger_model(),
+        [ChangeEvent("main/gate", ChangeType.MODIFIED, {"trigger_changed": True})],
+    )
+
+    assert affected == {
+        "main/gate", "deploy/deploy-prod", "deploy/smoke-test", "canary/deploy-canary"
+    }
+
+
+@pytest.mark.parametrize("changed", ["BUILD_CMD", "main/.base"])
+def test_incidental_trigger_impact_does_not_expand(changed: str) -> None:
+    assert select_affected_with_triggers(
+        _trigger_model(), [ChangeEvent(changed, ChangeType.MODIFIED)]
+    ) == {"main/gate"}
+
+
+def test_child_change_does_not_select_parent_trigger() -> None:
+    assert select_affected_with_triggers(
+        _trigger_model(), [ChangeEvent("deploy/deploy-prod", ChangeType.MODIFIED)]
+    ) == {"deploy/deploy-prod"}
+
+
+def test_nested_trigger_expansion_requires_its_own_direct_change() -> None:
+    affected = select_affected_with_triggers(
+        _trigger_model(),
+        [
+            ChangeEvent("main/gate", ChangeType.MODIFIED, {"trigger_changed": True}),
+            ChangeEvent("deploy/deploy-prod", ChangeType.MODIFIED, {"trigger_changed": True}),
+        ],
+    )
+
+    assert affected == {
+        "main/gate", "deploy/deploy-prod", "deploy/smoke-test",
+        "canary/deploy-canary", "notify/send-notification",
+    }
+
+
+def test_trigger_expansion_deduplicates_selected_stages() -> None:
+    affected = select_affected_with_triggers(
+        _trigger_model(),
+        [
+            ChangeEvent("main/gate", ChangeType.MODIFIED, {"trigger_changed": True}),
+            ChangeEvent("deploy/smoke-test", ChangeType.MODIFIED),
+        ],
+    )
+
+    assert affected == {
+        "main/gate", "deploy/deploy-prod", "deploy/smoke-test", "canary/deploy-canary"
+    }
+
+
+def test_removed_stage_enrichment_does_not_expand_incidental_trigger() -> None:
+    model = _trigger_model()
+    model.nodes.append(NodeInfo("main/build", NodeType.STAGE))
+    model.edges.append(EdgeInfo("main/gate", "main/build", EdgeType.DEPENDS_ON))
+
+    affected = select_affected_with_triggers(
+        model, [ChangeEvent("main/build", ChangeType.REMOVED)]
+    )
+
+    assert affected == {"main/build", "main/gate"}
