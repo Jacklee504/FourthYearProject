@@ -59,7 +59,7 @@ def compute_risk_score(
         "fan_out": _fan_out_score(graph, affected_stage),
         "directness": _directness_score(graph, changed_node, affected_stage),
         "change_severity": _change_severity_score(change),
-        "cross_pipeline": _cross_pipeline_score(graph, changed_node, affected_stage),
+        "cross_pipeline": _cross_pipeline_score(graph, changed_node, affected_stage, change),
     }
     overall = sum(scores[name] * WEIGHTS[name] for name in WEIGHTS) * 100
     level = "CRITICAL" if overall >= 75 else "HIGH" if overall >= 50 else "MEDIUM" if overall >= 25 else "LOW"
@@ -139,9 +139,9 @@ def _change_severity_score(change: ChangeEvent) -> float:
 
 
 def _cross_pipeline_score(
-    graph: nx.DiGraph, changed_node: str, affected_stage: str
+    graph: nx.DiGraph, changed_node: str, affected_stage: str, change: ChangeEvent
 ) -> float:
-    changed_pipeline = graph.nodes[changed_node].get("pipeline", "")
+    changed_pipeline = change.details.get("origin_pipeline") or graph.nodes[changed_node].get("pipeline", "")
     affected_pipeline = graph.nodes[affected_stage].get("pipeline", "")
     return 1.0 if changed_pipeline != affected_pipeline else 0.0
 
@@ -162,7 +162,7 @@ def _max_path_length(graph: nx.DiGraph) -> int:
     return max(
         (
             length
-            for lengths in nx.all_pairs_shortest_path_length(graph)
+            for _, lengths in nx.all_pairs_shortest_path_length(graph)
             for length in lengths.values()
         ),
         default=0,

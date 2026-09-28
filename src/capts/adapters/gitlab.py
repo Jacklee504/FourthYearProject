@@ -133,6 +133,14 @@ class GitLabAdapter(FormatAdapter):
                 _combined_variables(old_pipelines.values()),
                 _combined_variables(new_pipelines.values()),
             )
+            for change in changes:
+                owners = [
+                    name
+                    for name, pipeline in old_pipelines.items()
+                    if change.node_id in _global_variables(pipeline)
+                ]
+                if len(owners) == 1:
+                    change.details["origin_pipeline"] = owners[0]
             for name in old_pipelines.keys() | new_pipelines.keys():
                 changes.extend(
                     event
@@ -150,6 +158,8 @@ class GitLabAdapter(FormatAdapter):
         old_variables = _global_variables(old_pipeline)
         new_variables = _global_variables(new_pipeline)
         changes = _variable_changes(old_variables, new_variables)
+        for change in changes:
+            change.details["origin_pipeline"] = pipeline_name
 
         old_templates = _templates(old_pipeline)
         new_templates = _templates(new_pipeline)

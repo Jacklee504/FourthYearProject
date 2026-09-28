@@ -1,5 +1,9 @@
-import pytest
+from pathlib import Path
 
+import pytest
+import yaml
+
+from capts.adapters.gitlab import GitLabAdapter
 from capts.graph import build_graph
 from capts.model import (
     ChangeEvent,
@@ -12,6 +16,8 @@ from capts.model import (
     PipelineModel,
 )
 from capts.risk import compute_risk_score, score_selected_stages
+
+ECOSYSTEM = Path(__file__).parent / "fixtures" / "ecosystem"
 
 
 def test_risk_score_for_a_direct_local_removal() -> None:
@@ -130,3 +136,42 @@ def test_execution_result_does_not_change_selected_stage_risk() -> None:
     assert passing.risk == failing.risk
     assert passing.execution_result is not None and passing.execution_result.passed
     assert failing.execution_result is not None and not failing.execution_result.passed
+
+
+def test_adapter_variable_change_has_the_correct_cross_pipeline_risk(tmp_path: Path) -> None:
+    paths = {name: ECOSYSTEM / f"{name}.yml" for name in ("main", "deploy", "canary", "notify")}
+    adapter = GitLabAdapter()
+    graph = build_graph(adapter.parse(paths))
+    with paths["main"].open(encoding="utf-8") as source:
+        changed_main = yaml.safe_load(source)
+    del changed_main["variables"]["FEATURE_FLAGS"]
+    new_main = tmp_path / "main.yml"
+    new_main.write_text(yaml.safe_dump(changed_main), encoding="utf-8")
+    changes = adapter.detect_changes(paths, {**paths, "main": new_main})
+    change = next(event for event in changes if event.node_id == "FEATURE_FLAGS")
+
+    assert graph.nodes["FEATURE_FLAGS"]["pipeline"] is None
+    assert change.details["origin_pipeline"] == "main"
+    assert {
+        stage: compute_risk_score(graph, change.node_id, stage, change).cross_pipeline
+        for stage in ("main/unit-test", "deploy/smoke-test", "canary/canary-test")
+    } == {"main/unit-test": 0.0, "deploy/smoke-test": 1.0, "canary/canary-test": 1.0}
+
+
+def test_adapter_stage_and_template_changes_keep_their_pipeline_origin() -> None:
+    paths = {name: ECOSYSTEM / f"{name}.yml" for name in ("main", "deploy", "canary", "notify")}
+    adapter = GitLabAdapter()
+    graph = build_graph(adapter.parse(paths))
+    stage_change = adapter.detect_changes(
+        {"build": {"script": "echo old"}}, {"build": {"script": "echo new"}},
+        pipeline_name="main",
+    )[0]
+    template_change = adapter.detect_changes(
+        {".test-base": {"retry": 1}}, {".test-base": {"retry": 2}},
+        pipeline_name="deploy",
+    )[0]
+
+    assert compute_risk_score(graph, "main/build", "main/build", stage_change).cross_pipeline == 0.0
+    assert compute_risk_score(
+        graph, "deploy/.test-base", "deploy/smoke-test", template_change
+    ).cross_pipeline == 0.0
