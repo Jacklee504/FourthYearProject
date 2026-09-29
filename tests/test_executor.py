@@ -1,3 +1,11 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
 from capts.executor import (
     execute_gitlab_job,
     execute_gitlab_jobs,
@@ -5,6 +13,8 @@ from capts.executor import (
     order_execution_stages,
 )
 from capts.model import EdgeInfo, EdgeType, ExecutionResult, PipelineModel, Verdict
+
+ECOSYSTEM = Path(__file__).parent / "fixtures" / "ecosystem"
 
 
 def test_execute_gitlab_job_returns_a_passing_result(tmp_path) -> None:
@@ -140,3 +150,31 @@ def test_execution_verdict_fails_when_one_stage_fails() -> None:
 
 def test_execution_verdict_passes_without_selected_stages() -> None:
     assert execution_verdict([]) == Verdict.PASS
+
+
+@pytest.mark.parametrize(
+    ("script", "options"),
+    [
+        ("build.py", ("--registry", "REGISTRY_URL", "--cmd", "BUILD_CMD")),
+        ("test_runner.py", ("--flags", "FEATURE_FLAGS")),
+        ("scan.py", ("--threshold", "SCAN_THRESHOLD")),
+        ("deploy.py", ("--registry", "REGISTRY_URL", "--strategy", "DEPLOY_STRATEGY")),
+        ("deploy.py", ("--registry", "REGISTRY_URL")),
+        ("notify.py", ("--channel", "NOTIFICATION_CHANNEL")),
+    ],
+)
+def test_base_ecosystem_script_succeeds(script: str, options: tuple[str, ...]) -> None:
+    with (ECOSYSTEM / "main.yml").open(encoding="utf-8") as source:
+        variables = yaml.safe_load(source)["variables"]
+    arguments = [variables.get(option, option) for option in options]
+
+    result = subprocess.run(
+        [sys.executable, str(ECOSYSTEM / "scripts" / script), *arguments],
+        cwd=ECOSYSTEM,
+        env={**os.environ, **variables},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
