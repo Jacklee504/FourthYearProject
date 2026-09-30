@@ -1,5 +1,6 @@
 """Local execution for the first CAPTS GitLab job slice."""
 
+import os
 import subprocess
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -12,6 +13,7 @@ def execute_gitlab_job(
     job: Mapping[str, object],
     *,
     workspace: str | Path,
+    global_variables: Mapping[str, object] | None = None,
 ) -> ExecutionResult:
     """Execute one GitLab job script from the supplied workspace."""
     script = job.get("script")
@@ -20,10 +22,18 @@ def execute_gitlab_job(
     if not isinstance(script, list) or not all(isinstance(line, str) for line in script):
         raise ValueError("GitLab job script must be a string or list of strings.")
 
+    environment = os.environ.copy()
+    environment.update({name: str(value) for name, value in (global_variables or {}).items()})
+    local_variables = job.get("variables", {})
+    if not isinstance(local_variables, Mapping):
+        raise TypeError("GitLab job variables must be a mapping.")
+    environment.update({name: str(value) for name, value in local_variables.items()})
+
     completed = subprocess.run(
         "\n".join(script),
         shell=True,
         cwd=workspace,
+        env=environment,
         capture_output=True,
         text=True,
         check=False,
@@ -42,10 +52,14 @@ def execute_gitlab_jobs(
     *,
     workspace: str | Path,
     model: PipelineModel | None = None,
+    global_variables: Mapping[str, object] | None = None,
 ) -> list[ExecutionResult]:
     """Execute the selected GitLab jobs in stable order."""
     return [
-        execute_gitlab_job(stage_id, jobs[stage_id], workspace=workspace)
+        execute_gitlab_job(
+            stage_id, jobs[stage_id], workspace=workspace,
+            global_variables=global_variables,
+        )
         for stage_id in (
             order_execution_stages(model, selected_stage_ids)
             if model is not None

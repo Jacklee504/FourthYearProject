@@ -178,3 +178,55 @@ def test_base_ecosystem_script_succeeds(script: str, options: tuple[str, ...]) -
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_job_environment_combines_global_local_and_host_values(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CAPTS_HOST_TEST", "host")
+
+    result = execute_gitlab_job(
+        "main/build",
+        {
+            "variables": {"BUILD_CMD": "local", "LOCAL_ONLY": "job"},
+            "script": 'printf "%s|%s|%s|%s" "$REGISTRY_URL" "$BUILD_CMD" "$LOCAL_ONLY" "$CAPTS_HOST_TEST"',
+        },
+        workspace=tmp_path,
+        global_variables={"REGISTRY_URL": "global", "BUILD_CMD": "global"},
+    )
+
+    assert result.passed
+    assert result.stdout == "global|local|job|host"
+
+
+def test_security_scan_receives_its_local_build_command() -> None:
+    with (ECOSYSTEM / "main.yml").open(encoding="utf-8") as source:
+        pipeline = yaml.safe_load(source)
+    job = {**pipeline["security-scan"], "script": 'printf "%s" "$BUILD_CMD"'}
+
+    result = execute_gitlab_job(
+        "main/security-scan", job, workspace=ECOSYSTEM,
+        global_variables=pipeline["variables"],
+    )
+
+    assert result.passed
+    assert result.stdout == "make scan"
+
+
+def test_selected_jobs_share_global_variables_across_pipelines() -> None:
+    with (ECOSYSTEM / "main.yml").open(encoding="utf-8") as source:
+        main = yaml.safe_load(source)
+    with (ECOSYSTEM / "canary.yml").open(encoding="utf-8") as source:
+        canary = yaml.safe_load(source)
+
+    results = execute_gitlab_jobs(
+        {"main/build", "canary/deploy-canary"},
+        {
+            "main/build": main["build"],
+            "canary/deploy-canary": canary["deploy-canary"],
+        },
+        workspace=ECOSYSTEM,
+        global_variables=main["variables"],
+    )
+
+    assert {result.stage_id: result.passed for result in results} == {
+        "main/build": True, "canary/deploy-canary": True,
+    }
