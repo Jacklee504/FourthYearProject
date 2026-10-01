@@ -15,6 +15,14 @@ WORKFLOW = "./.github/workflows/"
 class GitHubActionsAdapter:
     """Map the first supported GitHub Actions features into a PipelineModel."""
 
+    @staticmethod
+    def detect(directory: Path) -> bool:
+        return any((directory / ".github/workflows").glob("*.yml"))
+
+    @staticmethod
+    def format_id() -> str:
+        return "github-actions"
+
     def parse(
         self,
         path: str | Path | Mapping[str, str | Path],

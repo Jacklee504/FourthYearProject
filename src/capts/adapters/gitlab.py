@@ -52,6 +52,14 @@ class VariableValidationError:
 class GitLabAdapter(FormatAdapter):
     """Map the first supported GitLab CI features into the CAPTS model."""
 
+    @staticmethod
+    def detect(directory: Path) -> bool:
+        return (directory / ".gitlab-ci.yml").is_file()
+
+    @staticmethod
+    def format_id() -> str:
+        return "gitlab-ci"
+
     def parse(
         self,
         path: str | Path | Mapping[str, str | Path],

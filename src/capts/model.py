@@ -112,3 +112,13 @@ class FormatAdapter(Protocol):
         new_script_root: str | Path | None = None,
     ) -> list[ChangeEvent]:
         """Compare two pipeline definitions and report typed changes."""
+
+    @staticmethod
+    def detect(directory: Path) -> bool:
+        """Whether this adapter can handle the given directory."""
+        ...
+
+    @staticmethod
+    def format_id() -> str:
+        """Stable identifier for this pipeline format."""
+        ...

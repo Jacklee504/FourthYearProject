@@ -1,3 +1,9 @@
+from pathlib import Path
+
+import pytest
+
+from capts.adapters import detect_format
+from capts.adapters.github import GitHubActionsAdapter
 from capts.adapters.gitlab import GitLabAdapter
 from capts.model import (
     ChangeEvent,
@@ -60,3 +66,19 @@ def test_execution_result_reports_a_failing_stage() -> None:
 
 def test_gitlab_adapter_implements_the_format_adapter_contract() -> None:
     assert isinstance(GitLabAdapter(), FormatAdapter)
+
+def test_adapter_detection(tmp_path: Path) -> None:
+    assert GitLabAdapter.format_id() == "gitlab-ci"
+    assert GitHubActionsAdapter.format_id() == "github-actions"
+
+    with pytest.raises(ValueError, match="Could not detect a supported pipeline format"):
+        detect_format(tmp_path)
+
+    (tmp_path / ".gitlab-ci.yml").touch()
+    assert isinstance(detect_format(tmp_path), GitLabAdapter)
+
+    (tmp_path / ".gitlab-ci.yml").unlink()
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").touch()
+    assert isinstance(detect_format(tmp_path), GitHubActionsAdapter)
