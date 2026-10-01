@@ -36,6 +36,9 @@ GITLAB_GLOBAL_KEYS = {
 VARIABLE_PATTERN = re.compile(
     r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)}|([A-Za-z_][A-Za-z0-9_]*))"
 )
+RUNTIME_VARIABLE_PATTERN = re.compile(
+    r"(?<![\w.])os\.(?:environ\s*\[\s*|getenv\s*\(\s*)['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"
+)
 
 
 @dataclass(frozen=True)
@@ -220,6 +223,29 @@ class GitLabAdapter(FormatAdapter):
                         )
                     )
 
+        return errors
+
+    def validate_runtime_variables(
+        self,
+        selected_jobs: Mapping[str, Mapping[str, object]],
+        *,
+        workspace: str | Path,
+        global_variables: Mapping[str, object] | None = None,
+    ) -> list[VariableValidationError]:
+        """Report missing variables used by selected jobs' Python scripts."""
+        errors = []
+        for stage_id, job in selected_jobs.items():
+            local_variables = job.get("variables", {})
+            if not isinstance(local_variables, Mapping):
+                raise TypeError("GitLab job variables must be a mapping.")
+            available = set(global_variables or {}) | set(local_variables)
+            referenced = set()
+            for script in _scripts(job.get("script")):
+                if script.endswith(".py"):
+                    source = (Path(workspace) / script).read_text(encoding="utf-8")
+                    referenced.update(RUNTIME_VARIABLE_PATTERN.findall(source))
+            for name in sorted(referenced - available):
+                errors.append(VariableValidationError(stage_id, name))
         return errors
 
     def resolve_selected_jobs(

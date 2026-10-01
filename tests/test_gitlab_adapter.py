@@ -146,6 +146,61 @@ def test_validation_reports_m01_style_removed_variable() -> None:
     ]
 
 
+def test_runtime_validation_reports_both_supported_references(tmp_path: Path) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "scan.py").write_text(
+        'import os\nos.environ["SCAN_THRESHOLD"]\nos.getenv("REGISTRY_URL")\n',
+        encoding="utf-8",
+    )
+
+    errors = GitLabAdapter().validate_runtime_variables(
+        {"main/security-scan": {"script": "python scripts/scan.py"}},
+        workspace=tmp_path,
+    )
+
+    assert errors == [
+        VariableValidationError("main/security-scan", "REGISTRY_URL"),
+        VariableValidationError("main/security-scan", "SCAN_THRESHOLD"),
+    ]
+
+
+def test_runtime_validation_accepts_global_and_local_variables(tmp_path: Path) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "scan.py").write_text(
+        'import os\nos.environ["SCAN_THRESHOLD"]\nos.getenv("REGISTRY_URL")\n',
+        encoding="utf-8",
+    )
+
+    errors = GitLabAdapter().validate_runtime_variables(
+        {"main/security-scan": {
+            "script": "python scripts/scan.py",
+            "variables": {"SCAN_THRESHOLD": "local"},
+        }},
+        workspace=tmp_path,
+        global_variables={"REGISTRY_URL": "registry"},
+    )
+
+    assert errors == []
+
+
+def test_runtime_validation_ignores_other_python_identifiers(tmp_path: Path) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "scan.py").write_text(
+        'other.getenv("NOT_A_RUNTIME_VARIABLE")\nos.path.join("a", "b")\n',
+        encoding="utf-8",
+    )
+
+    errors = GitLabAdapter().validate_runtime_variables(
+        {"main/security-scan": {"script": "python scripts/scan.py"}},
+        workspace=tmp_path,
+    )
+
+    assert errors == []
+
+
 def test_gitlab_adapter_scans_the_full_job_and_honours_local_overrides(
     tmp_path: Path,
 ) -> None:
