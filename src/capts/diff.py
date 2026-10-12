@@ -54,3 +54,39 @@ def detect_ref_changes(
         old_pipelines = {name: old_root / path for name, path in pipelines.items()}
         new_pipelines = {name: new_root / path for name, path in pipelines.items()}
         return adapter.detect_changes(old_pipelines, new_pipelines, old_script_root=old_root, new_script_root=new_root)
+
+def detect_staged_changes(
+    adapter: FormatAdapter,
+    repository: Path,
+    pipelines: Mapping[str, str | Path],
+) -> list[ChangeEvent]:
+    """Compare HEAD with the staged version of pipeline and script files."""
+    def git(*args: str) -> bytes:
+        result = subprocess.run(
+            ["git", "-C", str(repository), *args],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError(f"Git command failed: {result.stderr.decode().strip()}")
+        return result.stdout
+
+    changed = set(git("diff", "--cached", "--name-only", "HEAD", "--").decode().splitlines())
+    pipeline_files = {str(path) for path in pipelines.values()}
+    files = pipeline_files | {path for path in changed if path.startswith("scripts/")}
+
+    with TemporaryDirectory() as temporary:
+        old_root = Path(temporary) / "old"
+        new_root = Path(temporary) / "new"
+        for relative in sorted(files):
+            for root, version in (
+                (old_root, f"HEAD:{relative}"),
+                (new_root, f":{relative}")
+            ):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(git("show", version))
+
+        old_pipelines = {name: old_root / path for name, path in pipelines.items()}
+        new_pipelines = {name: new_root / path for name, path in pipelines.items()}
+        return adapter.detect_changes(old_pipelines, new_pipelines, old_script_root=old_root, new_script_root=new_root)
